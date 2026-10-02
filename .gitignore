@@ -1,0 +1,13 @@
+build/
+release/
+node_modules/
+tradelog/
+*.dmg
+*.zip
+.DS_Store
+.env
+.env.*
+!.env.example
+state.json
+training-data.jsonl
+analysis-*.json
