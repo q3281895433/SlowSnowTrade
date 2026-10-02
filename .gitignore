@@ -11,3 +11,10 @@ tradelog/
 state.json
 training-data.jsonl
 analysis-*.json
+analysis-history/
+deepseek-key.enc
+*.pem
+*.key
+*.p12
+*.pfx
+*.exe

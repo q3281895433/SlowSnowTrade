@@ -1,16 +1,36 @@
 # 小雪交易 · SlowSnowTrade
 
-适用于 Intel Mac 的本地加密货币交易练习工作台。使用系统自带的 Clang、Cocoa 和 WebKit 构建；无需安装完整 Xcode、更新 macOS 或发布到 App Store。最低系统版本为 macOS 13。
+适用于 Intel Mac、Apple Silicon Mac 和 Windows 的本地加密货币交易练习工作台。三个平台共用图表、交易账本和 Agent 界面。Mac 使用 Clang、Cocoa 和 WebKit，不需要完整 Xcode 或 App Store；最低 macOS 13。Windows 使用 Electron，支持 Windows 10/11 x64。
 
 ## 构建与打开
 
 ```sh
 cd ~/Desktop/VScode/SlowSnowTrade
-./build-mac.sh
+bash build-mac.sh x86_64
 open build/SlowSnowTrade.app
+# M 芯片版：bash scripts/package-mac.sh arm64
+# Intel 与 M 芯片通用版：bash scripts/package-mac.sh universal
 ```
 
-预编译的 `build/SlowSnowTrade.app` 可直接打开。`SlowSnowTrade.dmg` 是便于备份的磁盘映像，包含同一 App。
+Mac 安装包在 `release/`：打开对应 `.dmg`，把带小雪人图标的 SlowSnowTrade 拖入 Applications。通用版包含 Intel 与 arm64 两种架构，可用于两种 Mac。编译只需要 Apple Command Line Tools。
+
+Windows 下载 `SlowSnowTrade-1.6.0-Windows-x64-Setup.exe`，安装向导可选择目录，并创建桌面和开始菜单快捷方式；在系统“已安装的应用”中可卸载。交易、图表设置和复盘数据在卸载后保留。
+
+本项目暂未配置 Apple Developer ID、公证或 Windows 商业代码签名证书。Mac 首次打开可能需要在“隐私与安全性”确认，Windows 可能显示 SmartScreen 提示；不要全局关闭系统防护。
+
+## Windows 开发与自动打包
+
+```sh
+npm ci
+npm start
+npm run dist:win
+```
+
+在 Windows 上运行上述命令，不需要 Xcode。`packaging/AppIcon.ico` 含 16–256 像素的现有小雪人图标，覆盖快捷方式、安装程序、卸载程序和任务栏。修改 PNG 后可在 Mac 用 `python3 scripts/make-windows-icon.py` 重新生成 ICO。
+
+GitHub Actions 的 **Desktop installers** 工作流会在 Windows runner 上生成 `.exe`，并在 Mac runner 上生成 Intel、M 芯片和通用 `.dmg`。在仓库 Actions 页面打开成功的任务，从 Artifacts 下载对应平台的压缩包后解压安装。也可以点击 Run workflow 手动构建。它只编译和打包，不启动交易 App，不调用 DeepSeek，不读取本地账户数据。
+
+平台入口：`SlowSnowTrade/Native/main.m` 为 Mac 原生入口；`SlowSnowTrade/Desktop/main.cjs` / `preload.cjs` / `service.cjs` 为 Windows 桌面与网络存储层。窗口隔离并仅开放必要的消息接口，交易接口始终是本地模拟记账。
 
 ## 功能
 
@@ -32,14 +52,14 @@ open build/SlowSnowTrade.app
 - Agent 读取对应币种开仓前/平仓时的 Bitget U 本位合约 K 线、当前分析周期/1 小时/4 小时 K 线及 BTC 1 小时背景，计算 MA20/50/100、EMA、MACD、RSI、ATR、BOLL、相对成交量和候选区间。开仓复盘仅使用当时已收盘 K 线，当前行情分开分析，缺少数据时要求说明缺口。价格与成交量动向不包含新闻或链上资金流。长持仓超出单页历史覆盖时，不声称完整盘中路径或精确回测。
 - 输出上限扩至 6000 tokens、请求超时 90 秒；在已知支持的非思考模式下直接生成可读报告，缺失/截断输出会在界面提示。提供“重新生成所选复盘”，旧版本同步归档到 `tradelog/analysis-history/`，原始指标、行情样本及模型/提示词版本与新报告一起保存，供后续量化研究。请求会调用用户配置的 DeepSeek API；不会在升级时批量重生成历史复盘。
 - **买卖路标：**买入采用绿色 B 标签，放在 K 线下方并向上指；卖出采用红色 S 标签，放在上方并向下指。图中仅显示固定 18 像素的 B / S 小标签；开多/开空/平多/平空/减仓/强平、笔数、时间、成交价和数量在悬停时显示。邻近同方向成交汇总，避免重叠；分批平仓只保留一条原始开仓标记。手动买卖点采用虚线边框。
-- DeepSeek 复盘：API Key 存入 macOS 钥匙串；手动分析历史交易，或开启平仓后自动复盘。Agent 窗口“已保存复盘”可选择查看，启动时自动补读原有 `analysis-*.json`。新旧复盘会同步至桌面 VScode 项目 `tradelog/`，App 内可直接打开该目录。
+- DeepSeek 复盘：API Key 在 Mac 存入钥匙串，在 Windows 使用 DPAPI 系统加密；手动分析历史交易，或开启平仓后自动复盘。Agent 窗口“已保存复盘”可选择查看，启动时自动补读原有 `analysis-*.json`。新旧复盘会同步至桌面 VScode 项目 `tradelog/`，App 内可直接打开该目录。
 - 图标为简约卡通小雪人：天蓝色围巾、腮红、K 线小牌。图标原图在 `SlowSnowTrade/Web/assets/app-icon.png`，生成说明与完整提示词在 `SlowSnowTrade/Design/app-icon-prompt.md`。
 
 ## 数据位置
 
 首次启动会把旧版 `~/Desktop/deepseek/PaperTrade/` 的文件复制到新目录，原文件保留。所有账户状态、划线、交易流水、K 线快照和 Agent 复盘保存在 `~/Desktop/deepseek/SlowSnowTrade/`。训练事件使用 `training-data.jsonl`，便于以后制作量化 Agent。
 
-另外自动同步到 `~/Desktop/VScode/SlowSnowTrade/tradelog/`：`tradelog.md` 为可阅读的逐单总结，`trades.json` 为完整历史账单，`analysis-*.json` 为各单 DeepSeek 原始复盘，`training-data.jsonl` 为训练事件镜像。没有复盘的账单会标为“尚未生成复盘”，不会自动补发收费 API 请求。API Key 只在 macOS 钥匙串中保存，不写入训练数据或项目文件。
+另外自动同步到 `~/Desktop/VScode/SlowSnowTrade/tradelog/`：`tradelog.md` 为可阅读的逐单总结，`trades.json` 为完整历史账单，`analysis-*.json` 为各单 DeepSeek 原始复盘，`training-data.jsonl` 为训练事件镜像。没有复盘的账单会标为“尚未生成复盘”，不会自动补发收费 API 请求。API Key 在 Mac 只存入钥匙串，在 Windows 使用系统 DPAPI 加密后保存在应用数据目录；不写入训练数据或项目文件。
 
 当前版本使用公开现货 K 线与 Bitget 合约行情做本地练习，不连接真实资金账户，也不向交易所发送订单。自动强平遵循逐仓标记价、分档维持保证金和预留手续费的模型；每笔订单独立记账，不合并同方向订单为交易所的净仓位。市价按买卖盘口估算，等待成交的限价按符合限价条件的买卖盘口估算，挂单按公开 maker 费率、立即成交按 taker 费率估算；不推断真实挂单队列与部分撮合。不模拟订单簿深度、真实撮合、资金费率结算、离线期间的价格路径或 ADL。因此它并非交易所完整撮合与清算系统的复刻。App 关闭或行情断开时无法实时强平，重新获得有效标记价后检查仍在持有的仓位。DeepSeek API 调用可能产生费用，自动复盘默认关闭。
 

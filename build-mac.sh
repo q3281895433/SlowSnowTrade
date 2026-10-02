@@ -3,7 +3,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
-APP="$ROOT/build/SlowSnowTrade.app"
+ARCH="${1:-x86_64}"
+case "$ARCH" in
+  x86_64) ARCH_FLAGS=(-arch x86_64); APP="$ROOT/build/SlowSnowTrade.app" ;;
+  arm64) ARCH_FLAGS=(-arch arm64); APP="$ROOT/build/arm64/SlowSnowTrade.app" ;;
+  universal) ARCH_FLAGS=(-arch x86_64 -arch arm64); APP="$ROOT/build/universal/SlowSnowTrade.app" ;;
+  *) echo 'Usage: bash build-mac.sh [x86_64|arm64|universal]' >&2; exit 1 ;;
+esac
 CONTENTS="$APP/Contents"
 RESOURCES="$CONTENTS/Resources"
 MACOS="$CONTENTS/MacOS"
@@ -27,7 +33,7 @@ for SIZE in 16 32 128 256 512; do
 done
 iconutil -c icns "$ICONSET" -o "$RESOURCES/AppIcon.icns"
 
-clang -fobjc-arc -arch x86_64 -mmacosx-version-min=13.0 \
+clang -fobjc-arc "${ARCH_FLAGS[@]}" -mmacosx-version-min=13.0 \
   -isysroot "$SDK_PATH" \
   -framework Cocoa -framework WebKit -framework Security \
   "$ROOT/SlowSnowTrade/Native/main.m" \
@@ -43,8 +49,8 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
     <key>CFBundleName</key><string>SlowSnowTrade</string>
     <key>CFBundleDisplayName</key><string>SlowSnowTrade</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.5</string>
-    <key>CFBundleVersion</key><string>7</string>
+    <key>CFBundleShortVersionString</key><string>1.6.0</string>
+    <key>CFBundleVersion</key><string>8</string>
     <key>CFBundleIconFile</key><string>AppIcon.icns</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.finance</string>
@@ -54,4 +60,4 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
 PLIST
 
 codesign --force --deep --sign - "$APP"
-echo "Built $APP for Intel (x86_64)."
+echo "Built $APP for $ARCH."
