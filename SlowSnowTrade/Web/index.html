@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>SlowSnowTrade</title>
+  <link rel="icon" href="assets/app-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-mark" aria-hidden="true"><img src="assets/app-icon.png" alt=""></div>
+    <div class="brand-copy"><strong>小雪交易</strong><span>SlowSnowTrade</span></div>
+    <div class="top-rule"></div>
+    <div class="connection"><i id="connectionDot"></i><span id="connectionText">连接中</span><small id="connectionDetail">Binance Market Data</small></div>
+    <label class="source-control">行情源 <select id="sourceSelect" aria-label="行情数据源"><option value="auto">自动择快</option><option value="binance">Binance</option><option value="bitget">Bitget</option></select></label>
+    <div class="top-spacer"></div>
+    <label class="top-range">字号 <input id="fontScale" type="range" min="85" max="150" value="100" aria-label="字体大小"><output id="fontScaleValue">100%</output></label>
+    <label class="top-range icon-range">图标 <input id="iconScale" type="range" min="24" max="56" value="34" aria-label="图标大小"><output id="iconScaleValue">34</output></label>
+    <button id="walletButton" class="top-action" type="button">资金管理</button>
+    <time id="clock"></time>
+  </header>
+
+  <div class="desk" id="desk">
+    <main class="main-grid" id="mainGrid">
+      <aside class="panel sidebar" aria-label="市场与账户">
+        <div class="side-brandline"><span>工作台</span><b>MARKETS</b></div>
+        <section class="account-summary">
+          <div class="section-heading"><span>账户权益</span><button id="walletShortcut" class="quiet-button" type="button" aria-label="管理 USDT">＋</button></div>
+          <div class="equity-number"><strong id="equity">10,000.00</strong><span>USDT</span></div>
+          <div class="account-mini"><div><span>可用</span><b id="cash">10,000.00</b></div><div><span>保证金 / 委托冻结</span><b id="lockedMargin">0.00</b></div></div>
+        </section>
+        <div class="section-heading market-heading"><span>自选市场</span><button id="autoAddButton" class="accent-mini" type="button" title="按成交额自动加入热门 USDT 币种">自动加币</button></div>
+        <div class="market-search"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 5 5"/></svg><input id="symbolSearch" type="search" placeholder="搜索币种 / 交易对" autocomplete="off" aria-label="搜索币种"><button id="addSymbolButton" type="button" title="加入搜索结果">＋</button></div>
+        <button id="discoverButton" class="discover-launch" type="button">发现更多币种 <span>↗</span></button>
+        <div id="searchResults" class="search-results" hidden></div>
+        <div class="watchlist-head"><span>交易对</span><span>最新价</span></div>
+        <div id="markets" class="markets" role="list"></div>
+        <div class="sidebar-footer"><span>盈亏概览</span><div><span>浮动</span><b id="floatingPnL">0.00</b></div><div><span>已实现</span><b id="realizedPnL">0.00</b></div></div>
+      </aside>
+
+      <div class="resize-handle vertical" id="leftHandle" role="separator" aria-orientation="vertical" title="拖动调整市场栏宽度"></div>
+
+      <section class="panel workspace" id="workspace" aria-label="图表工作区">
+        <div class="chart-header">
+          <div class="pair-heading"><div class="pair-logo" id="pairLogo"></div><div><h1 id="pairTitle">BTC/USDT</h1><span id="marketSubtitle">Binance · K 线</span></div></div>
+          <div class="last-price"><strong id="lastPrice">—</strong><small>最新价格</small></div>
+          <div class="header-fill"></div>
+          <div class="intervals" id="intervals" aria-label="K 线周期"></div>
+          <details class="study-picker" id="overlayPicker"><summary>主图曲线</summary><div class="study-options"><label><input type="checkbox" value="ma20">MA 20</label><label><input type="checkbox" value="ma50">MA 50</label><label><input type="checkbox" value="ma100">MA 100</label><label><input type="checkbox" value="ema12">EMA 12</label><label><input type="checkbox" value="ema26">EMA 26</label><label><input type="checkbox" value="boll">BOLL</label><label><input type="checkbox" value="vwap">VWAP</label></div></details>
+          <details class="study-picker" id="indicatorPicker"><summary>副图指标</summary><div class="study-options"><label><input type="checkbox" value="macd">MACD</label><label><input type="checkbox" value="rsi">RSI</label><label><input type="checkbox" value="kdj">KDJ</label><label><input type="checkbox" value="atr">ATR</label><label><input type="checkbox" value="cci">CCI</label><label><input type="checkbox" value="obv">OBV</label><label><input type="checkbox" value="volume">成交量</label></div></details>
+          <label class="left-tool-label">左键<select id="leftClickTool" aria-label="左键短按功能"><option value="trend">趋势线</option><option value="mark">标记</option><option value="buy">买点</option><option value="sell">卖点</option><option value="measure">测量</option></select></label>
+          <button id="chartResetButton" class="toolbar-button" type="button" title="回到最新 K 线">回到最新</button>
+          <button id="refreshButton" class="toolbar-button icon-only" type="button" title="重新加载行情">↻</button>
+        </div>
+        <div class="market-strip"><span class="live-mark"><i></i>K 线</span><span>开 <b id="openPrice">—</b></span><span>高 <b id="highPrice">—</b></span><span>低 <b id="lowPrice">—</b></span><span>量 <b id="volume">—</b></span><span class="push-right" id="candleCount">0 根</span></div>
+        <div class="chart-stage" id="chartStage"><canvas id="chart" aria-label="K 线图，滚轮缩放，左键单击趋势线，长按拖动画箱体，右键划线或设置止盈止损；绿色买入在下，红色卖出在上，悬停路标查看成交明细"></canvas><canvas id="crosshairChart" aria-hidden="true"></canvas><div id="chartTooltip" class="chart-tooltip" hidden></div><div id="chartMessage" class="chart-message">正在读取行情</div><div id="chartToolStatus" class="chart-tool-status" role="status" hidden></div></div>
+        <div id="indicatorResizeHandle" class="indicator-resize-handle" role="separator" aria-orientation="horizontal" aria-label="调整图表内指标高度" hidden></div>
+        <section class="indicator-dock" id="indicatorWindow" aria-label="K 线附属指标" hidden><div id="indicatorPlots" class="indicator-plots"></div></section>
+        <div class="history-control"><span>历史 ←</span><input id="historySlider" type="range" min="-200" max="50" value="0" aria-label="向左查看历史 K 线，向右返回最新"><output id="historyValue">最新</output><span>→ 最新 / 留白</span></div>
+        <div class="chart-bottom"><span><i class="swatch up"></i>上涨</span><span><i class="swatch down"></i>下跌</span><span><i class="swatch buy"></i>买点</span><span><i class="swatch sell"></i>卖点</span><span class="push-right">单击趋势线 · 长按 0.15s 画箱体 · 滚轮缩放 <b id="chartViewStatus"></b></span></div>
+      </section>
+
+      <div class="resize-handle vertical" id="rightHandle" role="separator" aria-orientation="vertical" title="拖动调整右侧面板宽度"></div>
+
+      <aside class="right-column" aria-label="交易与 Agent">
+        <section class="panel order-panel">
+          <div class="panel-head"><h2>合约交易</h2><span class="trade-product">USDT 永续</span></div>
+          <div class="order-ticket-body">
+          <div class="order-mode-tabs" role="tablist"><button id="openMode" class="active" type="button" role="tab" aria-selected="true">开仓</button><button id="closeMode" type="button" role="tab" aria-selected="false">平仓</button></div>
+          <div class="order-config"><span>逐仓</span><label>杠杆 <output id="leverageValue">10×</output></label></div>
+          <input id="leverage" type="range" min="1" max="100" step="1" value="10" aria-label="杠杆倍数">
+          <label class="order-field">委托类型<select id="orderType"><option value="limit">限价委托</option><option value="market">市价委托</option></select></label>
+          <label id="closePositionField" class="order-field" hidden>选择持仓<select id="closePositionSelect"></select></label>
+          <label class="order-field">价格 <span class="field-unit">USDT</span><div class="input-shell"><input id="orderPrice" type="number" min="0" step="any" placeholder="输入委托价格"><button id="useMarketPrice" type="button" title="填入最新合约价格">最新</button></div></label>
+          <label class="order-field">数量 <span id="quantityUnit" class="field-unit">BTC</span><div class="input-shell"><input id="amount" type="number" min="0" step="any" placeholder="输入币种数量"><span id="amountUnit">BTC</span></div></label>
+          <div class="size-control"><input id="sizePercent" type="range" min="0" max="100" step="1" value="0" aria-label="可用资金或持仓比例"><output id="sizePercentValue">0%</output></div>
+          <div class="size-presets"><button data-size="25" type="button">25%</button><button data-size="50" type="button">50%</button><button data-size="75" type="button">75%</button><button data-size="100" type="button">100%</button></div>
+          <div class="order-facts"><div><span>可用余额</span><b id="orderAvailable">—</b></div><div><span>合约标记价</span><b id="contractMark">—</b></div><div><span>委托价值</span><b id="notional">—</b></div><div><span>预计保证金</span><b id="marginEstimate">—</b></div><div><span>可买 / 可卖数量</span><b id="estimate">—</b></div><div><span>预估强平价 · 多 / 空</span><b id="liquidationEstimate">—</b></div><div><span>预计手续费</span><b id="openFeeEstimate">—</b></div></div>
+          <div class="order-risk-hint" id="orderRiskStatus">正在获取合约标记价与仓位档位</div>
+          </div>
+          <div class="order-submit-pair"><button class="submit-order long" id="submitOrder" type="button" disabled>买入 / 开多</button><button class="submit-order short" id="submitShort" type="button" disabled>卖出 / 开空</button></div>
+          <p id="orderError" class="inline-error" hidden></p>
+        </section>
+        <div class="resize-handle horizontal inner" id="agentHandle" role="separator" aria-orientation="horizontal" title="拖动调整 Agent 面板高度"></div>
+        <section class="panel agent-panel">
+          <div class="panel-head"><h2>DeepSeek Agent</h2><span class="agent-indicator" id="keyStatus">未配置</span></div>
+          <div class="key-input"><input id="apiKey" type="password" autocomplete="off" placeholder="粘贴 API Key" aria-label="DeepSeek API Key"><button id="saveKeyButton" type="button">保存</button></div>
+          <label class="check-row"><input id="autoAnalyze" type="checkbox"><span>平仓后自动复盘</span></label>
+          <label class="review-picker">已保存复盘<select id="analysisSelect"><option value="">暂无复盘</option></select></label>
+          <div class="agent-path" id="analysisMeta"></div>
+          <div class="agent-insight" id="agentInsight">选择一笔已平仓交易查看分析。</div>
+          <div class="agent-actions"><button id="analyzeLatestButton" type="button">分析最近一单</button><button id="regenerateAnalysisButton" type="button" disabled>重新生成所选复盘</button><span id="analysisStatus"></span></div>
+          <button id="openTradeLog" class="discover-launch" type="button">打开 VScode / tradelog ↗</button>
+          <div class="agent-path" id="tradeLogPath"></div>
+          <div class="agent-path" id="dataPath">数据目录：桌面/deepseek/SlowSnowTrade</div>
+        </section>
+      </aside>
+    </main>
+    <div class="resize-handle horizontal bottom" id="bottomHandle" role="separator" aria-orientation="horizontal" title="拖动调整交易记录高度"></div>
+    <section class="panel activity-panel" aria-label="交易记录">
+      <div class="activity-head"><div class="activity-tabs"><button class="active" data-tab="positions" type="button">当前持仓 <b id="positionCount">0</b></button><button data-tab="orders" type="button">当前委托 <b id="orderCount">0</b></button><button data-tab="history" type="button">历史交易 <b id="historyCount">0</b></button><button data-tab="funds" type="button">资金记录</button><button data-tab="training" type="button">训练数据</button></div><div class="activity-summary">本期盈亏 <strong id="bottomPnL">0.00</strong></div></div>
+      <div class="table-scroll"><div class="table-head" id="tableHead"></div><div class="table-body" id="tableBody"></div></div>
+    </section>
+  </div>
+
+  <section class="panel discovery-panel" aria-label="发现币种">
+    <div class="discovery-tools"><input id="discoverySearch" type="search" placeholder="搜索名称 / 交易对" aria-label="发现币种搜索"><select id="discoveryFilter" aria-label="币种筛选"><option value="all">全部币种</option><option value="seed">种子标记</option><option value="watch">我的自选</option></select><button id="refreshDiscovery" type="button">刷新</button></div>
+    <p class="discovery-source" id="discoveryStatus">读取交易所公开交易列表</p>
+    <div id="discoveryList" class="discovery-list"></div>
+    <div class="discovery-pages"><button id="discoveryPrev" type="button">上一页</button><span id="discoveryPage"></span><button id="discoveryNext" type="button">下一页</button></div>
+    <p class="discovery-source" id="seedStatus">Seed · 币安种子标签</p>
+  </section>
+  <div id="chartMenu" class="context-menu" role="menu" hidden>
+    <div class="menu-heading">划线工具</div>
+    <button data-chart-action="trend" type="button">绘制趋势线</button>
+    <button data-chart-action="horizontal" type="button">绘制水平虚线（左键确认长度）</button>
+    <button data-chart-action="edit" type="button">编辑附近划线</button>
+    <button data-chart-action="delete" type="button">删除附近划线</button>
+    <div class="menu-rule"></div><div class="menu-heading">止盈止损 · 直接点击图表</div>
+    <button data-chart-action="risk-selected" type="button">设置所选账单止盈止损</button>
+    <div id="chartPositionActions"></div>
+    <button data-chart-action="risk-long" type="button">画做多区间（以此处为中间线）</button>
+    <button data-chart-action="risk-short" type="button">画做空区间（以此处为中间线）</button>
+    <button data-chart-action="delete-zone" type="button" hidden>取消止盈止损（同时取消）</button>
+    <div class="menu-rule"></div>
+    <button data-chart-action="buy-marker" type="button">在此设置买点</button>
+    <button data-chart-action="sell-marker" type="button">在此设置卖点</button>
+    <button data-chart-action="delete-marker" type="button">删除附近手动标记</button>
+    <button data-chart-action="cancel-box" type="button" hidden>取消此箱体</button>
+    <button data-chart-action="cancel-tool" type="button" hidden>取消当前绘图</button>
+  </div>
+  <dialog id="lineDialog" class="settings-dialog"><form method="dialog"><h2>划线设置</h2><label>名称<input id="lineLabel" type="text" maxlength="40" placeholder="可选"></label><label>颜色<input id="lineColor" type="color" value="#66cfff"></label><label>粗细<input id="lineWidth" type="range" min="1" max="6" value="2"></label><label>样式<select id="lineDash"><option value="solid">实线</option><option value="dashed">虚线</option></select></label><div class="dialog-actions"><button value="cancel" type="button" data-close-dialog>取消</button><button id="saveLineButton" value="save" type="button">保存</button></div></form></dialog>
+  <dialog id="walletDialog" class="settings-dialog"><form method="dialog"><h2>USDT 资金</h2><p>当前可用余额 <strong id="walletCash">0.00</strong> USDT</p><label>调整金额<input id="walletAmount" type="number" min="0.01" step="any" value="1000"></label><p id="walletError" class="inline-error" hidden></p><div class="dialog-actions"><button type="button" data-close-dialog>取消</button><button id="withdrawButton" type="button">减去 USDT</button><button id="depositButton" type="button">加入 USDT</button></div></form></dialog>
+  <dialog id="marginDialog" class="settings-dialog"><form method="dialog"><h2>调整逐仓保证金</h2><p id="marginPosition"></p><label>金额 · USDT<input id="marginAmount" type="number" min="0.01" step="any" value="100"></label><p id="marginError" class="inline-error" hidden></p><div class="dialog-actions"><button type="button" data-close-dialog>取消</button><button id="removeMargin" type="button">减少</button><button id="addMargin" type="button">追加</button></div></form></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script src="trading.js"></script><script src="indicators.js"></script><script src="chart.js"></script><script src="window-manager.js"></script><script src="agent-analysis.js"></script><script src="app.js"></script>
+</body>
+</html>
