@@ -1,6 +1,6 @@
 (function () {
   const $ = id => document.getElementById(id);
-  const native = payload => window.webkit?.messageHandlers?.native?.postMessage(payload);
+  const native = payload => window.SlowSnowDesktop ? window.SlowSnowDesktop.postMessage(payload) : window.webkit?.messageHandlers?.native?.postMessage(payload);
   const ledger = window.PTTrade;
   const defaults = ['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','AVAXUSDT'];
   const intervals = ['1m','5m','15m','1h','4h','1d'];
@@ -456,7 +456,7 @@
     if(event.type==='seedTagsError'){$('seedStatus').textContent='种子标签暂时不可用，稍后可刷新';return;}
     if(event.type==='topSymbols'){if(data.source!==state.activeSource)return;const valid=new Set(state.symbols.map(item=>item.id));let added=0;for(const item of data.pairs||[]){if(valid.has(item.id)&&!state.watchlist.includes(item.id)){state.watchlist.push(item.id);added++;}}save();renderMarkets();restartStream();note('已加入 '+added+' 个热门币种');return;}
     if(event.type==='topSymbolsError'||event.type==='symbolsError'||event.type==='storageError')note(data.message||'请求失败');
-    if(event.type==='keyStatus'){$('keyStatus').textContent=data.saved?'已配置':'保存失败';$('keyStatus').classList.toggle('saved',!!data.saved);note(data.saved?'API Key 已存入钥匙串':data.error||'保存失败');}
+    if(event.type==='keyStatus'){$('keyStatus').textContent=data.saved?'已配置':'保存失败';$('keyStatus').classList.toggle('saved',!!data.saved);note(data.saved?'API Key 已存入'+(data.storageLabel||'钥匙串'):data.error||'保存失败');}
     if(event.type==='analysisContext'){
       const job=analysisJobs.get(data.requestId);if(!job)return;analysisJobs.delete(data.requestId);
       const sample=window.PTAnalysis.sample(job.trade,data.datasets||[],job.account,freshQuote(job.trade.symbol));
@@ -465,6 +465,7 @@
     if(event.type==='analysis'){analysingTrades.delete(data.id);state.analyses[data.id]=data;selectedTrade=data.id;renderInsight(data.analysis);$('analysisStatus').textContent=data.truncated?'已保存 · 输出未完整':'策略复盘已保存';save();renderReviews();renderTable();window.PTWindows.show('agent');note('复盘已保存至 VScode / tradelog');}
     if(event.type==='analysisError'){analysingTrades.delete(data.id);$('analysisStatus').textContent='失败';renderReviews();note(data.message||'分析失败');}
   };
+  window.SlowSnowDesktop?.onEvent(window.PaperTradeNative);
   initializeEvents();applyTextScale();syncStudyChecks();renderIndicatorPanels();render();native({type:'ready'});
   setInterval(()=>{$('clock').textContent=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});},1000);
   setInterval(renderOrder,1000);
