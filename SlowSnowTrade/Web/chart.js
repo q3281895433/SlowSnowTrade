@@ -117,12 +117,17 @@
       })||null;
     }
     paintBox(ctx,box,draft=false) { const r=this.boxBounds(box),v=this.view;if(!r||!v)return;ctx.save();ctx.beginPath();ctx.rect(v.left,v.top,v.chartW,v.chartH);ctx.clip();ctx.fillStyle='#76d8ff0d';ctx.fillRect(r.x,r.y,r.w,r.h);ctx.strokeStyle=draft?'#d9f6ff':'#76d8ff';ctx.lineWidth=1.3;ctx.setLineDash(draft?[4,3]:[]);ctx.strokeRect(r.x,r.y,r.w,r.h);ctx.restore(); }
-    paintRiskZone(ctx,zone) {
-      const v=this.view;if(!v)return;
+    paintRiskZone(ctx,zone,layer='all') {
+      const v=this.view;if(!v||!Number.isFinite(zone.entry)||zone.entry<=0)return;
       const [start,end]=this.zoneTimes(zone),a=this.linePoint({time:start,price:zone.entry}),b=this.linePoint({time:end,price:zone.entry});
       const left=Math.min(a.x,b.x),right=Math.max(a.x,b.x);if(right<v.left||left>v.left+v.chartW)return;
       ctx.save();ctx.beginPath();ctx.rect(v.left,v.top,v.chartW,v.chartH);ctx.clip();ctx.font='11px -apple-system,sans-serif';ctx.lineWidth=.8;ctx.setLineDash([]);
-      for(const [price,color,label] of [[zone.entry,'#b3cad6',zone.label||'开仓中间线'],[zone.takeProfit,'#209763','止盈'],[zone.stopLoss,'#b43b4a','止损']]){
+      if(layer!=='lines')for(const [price,color] of [[zone.takeProfit,'rgba(8,153,129,0.18)'],[zone.stopLoss,'rgba(242,54,69,0.18)']]){
+        if(!(price>0)||!Number.isFinite(price))continue;
+        const y=this.linePoint({time:start,price}).y;
+        ctx.fillStyle=color;ctx.fillRect(left,Math.min(a.y,y),right-left,Math.abs(a.y-y));
+      }
+      if(layer!=='fill')for(const [price,color,label] of [[zone.entry,'#b3cad6',zone.label||'开仓中间线'],[zone.takeProfit,'#24df91','止盈'],[zone.stopLoss,'#ff5c71','止损']]){
         if(!(price>0)||!Number.isFinite(price))continue;
         const y=this.linePoint({time:start,price}).y;ctx.strokeStyle=color;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(right,y);ctx.stroke();
         ctx.fillStyle=color;ctx.fillText(label+' '+this.priceText(price),Math.max(v.left,left)+4,y-4);
@@ -374,6 +379,8 @@
         ctx.fillStyle = '#9caea3'; ctx.fillText(this.priceText(max - i * (max - min) / 4), left + chartW + 8, y + 4);
       }
       for(const box of this.boxes)this.paintBox(ctx,box);
+      const zones=[...this.riskZones,...ownPositions.filter(p=>p.takeProfit||p.stopLoss).map(p=>({...p,label:'开仓中间线 '+p.leverage+'×'}))];
+      for(const zone of zones)this.paintRiskZone(ctx,zone,'fill');
 
       for (let index = Math.max(0, startIndex); index <= Math.min(this.candles.length - 1, endIndex); index++) {
         const candle = this.candles[index], middle = left + (index - startIndex + .5) * step;
@@ -397,8 +404,7 @@
       }
       for (const position of ownPositions) this.priceLine(window.PTTrade.liquidationPrice(position), '#ff8095', '强平价');
       for (const line of this.lines) this.paintLine(ctx,line);
-      for(const zone of this.riskZones)this.paintRiskZone(ctx,zone);
-      for(const position of ownPositions)if(position.takeProfit||position.stopLoss)this.paintRiskZone(ctx,{...position,label:'开仓中间线 '+position.leverage+'×'});
+      for(const zone of zones)this.paintRiskZone(ctx,zone,'lines');
       this.drawMarkers();
       this.onViewport?.(this.view);
       this.onViewChanged?.(this.view);
