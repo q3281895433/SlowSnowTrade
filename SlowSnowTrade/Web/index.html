@@ -101,7 +101,8 @@
     <div class="resize-handle horizontal bottom" id="bottomHandle" role="separator" aria-orientation="horizontal" title="拖动调整交易记录高度"></div>
     <section class="panel activity-panel" aria-label="交易记录">
       <div class="activity-head"><div class="activity-tabs"><button class="active" data-tab="positions" type="button">当前持仓 <b id="positionCount">0</b></button><button data-tab="orders" type="button">当前委托 <b id="orderCount">0</b></button><button data-tab="history" type="button">历史交易 <b id="historyCount">0</b></button><button data-tab="funds" type="button">资金记录</button><button data-tab="training" type="button">训练数据</button></div><div class="activity-summary">本期盈亏 <strong id="bottomPnL">0.00</strong></div></div>
-      <div class="table-scroll"><div class="table-head" id="tableHead"></div><div class="table-body" id="tableBody"></div></div>
+      <div class="table-scroll" id="tableScroll" tabindex="0" aria-label="持仓与记录表格，可左右和上下滚动"><div class="table-surface" id="tableSurface" data-table-kind="positions"><div class="table-head" id="tableHead"></div><div class="table-body" id="tableBody"></div></div></div>
+      <div class="record-scroll-control"><label for="recordScroll">左右</label><input id="recordScroll" type="range" min="0" max="1" value="0" step="1" aria-label="左右查看持仓与记录" disabled><span id="recordScrollValue">全部可见</span></div>
     </section>
   </div>
 
@@ -135,6 +136,6 @@
   <dialog id="walletDialog" class="settings-dialog"><form method="dialog"><h2>USDT 资金</h2><p>当前可用余额 <strong id="walletCash">0.00</strong> USDT</p><label>调整金额<input id="walletAmount" type="number" min="0.01" step="any" value="1000"></label><p id="walletError" class="inline-error" hidden></p><div class="dialog-actions"><button type="button" data-close-dialog>取消</button><button id="withdrawButton" type="button">减去 USDT</button><button id="depositButton" type="button">加入 USDT</button></div></form></dialog>
   <dialog id="marginDialog" class="settings-dialog"><form method="dialog"><h2>调整逐仓保证金</h2><p id="marginPosition"></p><label>金额 · USDT<input id="marginAmount" type="number" min="0.01" step="any" value="100"></label><p id="marginError" class="inline-error" hidden></p><div class="dialog-actions"><button type="button" data-close-dialog>取消</button><button id="removeMargin" type="button">减少</button><button id="addMargin" type="button">追加</button></div></form></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
-  <script src="trading.js"></script><script src="indicators.js"></script><script src="chart.js"></script><script src="window-manager.js"></script><script src="agent-analysis.js"></script><script src="app.js"></script>
+  <script src="trading.js"></script><script src="timeframes.js"></script><script src="indicators.js"></script><script src="chart.js"></script><script src="window-manager.js"></script><script src="agent-analysis.js"></script><script src="app.js"></script>
 </body>
 </html>

@@ -232,3 +232,25 @@ button:disabled{opacity:.4;cursor:default}.order-field input:disabled{color:var(
 .agent-panel>*{flex:none}.order-facts{display:block}.order-facts>div{margin:4px 0}.search-results{position:relative;top:auto;left:auto;right:auto;flex:none;max-height:170px;margin-top:5px}.discovery-tools input{width:0;min-width:140px}
 
 .agent-insight{white-space:normal}.agent-insight h3{font-size:calc(.9rem * var(--font-scale));margin:16px 0 7px;color:#96dcff;line-height:1.45}.agent-insight h3:first-child{margin-top:0}.agent-insight p{margin:6px 0;white-space:pre-wrap;line-height:1.75;color:#d4e6ef}.swatch.buy{background:#3be5a3}.swatch.sell{background:#ff7186}
+
+/* The records share one compact canvas; the fixed-size slider moves the whole table. */
+.table-scroll{overflow:auto;min-width:0;min-height:0;outline-offset:-2px}
+.table-surface{width:max-content;--record-columns:calc(82px * var(--font-scale)) calc(44px * var(--font-scale)) calc(104px * var(--font-scale)) calc(80px * var(--font-scale)) calc(110px * var(--font-scale)) calc(110px * var(--font-scale)) calc(110px * var(--font-scale)) calc(218px * var(--font-scale)) calc(180px * var(--font-scale))}
+.table-surface[data-table-kind=funds]{--record-columns:calc(170px * var(--font-scale)) calc(124px * var(--font-scale)) calc(150px * var(--font-scale))}
+.table-surface[data-table-kind=training]{--record-columns:calc(120px * var(--font-scale)) calc(212px * var(--font-scale)) calc(250px * var(--font-scale))}
+.table-surface .table-head,.table-surface .trade-row{grid-template-columns:var(--record-columns);gap:8px;min-width:0;padding:0 10px;width:100%;box-sizing:border-box}
+.table-surface .table-head{position:sticky;top:0;z-index:1;background:#08131c;min-height:30px;height:auto;padding-top:7px;padding-bottom:7px}
+.table-surface .trade-row{min-height:44px;padding-top:5px;padding-bottom:5px}
+.table-surface .trade-row>span,.table-surface .table-head>span{min-width:0;overflow-wrap:anywhere}
+.table-surface .trade-row .trade-actions{gap:4px;justify-content:flex-start}
+.table-surface .table-empty{min-width:360px}
+.activity-head{flex:none;padding:0 10px;gap:10px;justify-content:flex-start}
+.activity-tabs{gap:10px;flex:0 1 auto;height:auto;min-height:42px}
+.activity-summary{margin-left:0!important}
+.record-scroll-control{display:flex;align-items:center;gap:10px;flex:none;min-height:26px;height:26px;padding:0 10px;border-top:1px solid var(--border);background:#050c13;box-sizing:border-box;font:11px -apple-system,sans-serif;color:var(--muted)}
+.record-scroll-control label{flex:none;white-space:nowrap;font:inherit}
+.record-scroll-control input[type=range]{display:block;flex:1;min-width:0;width:0;height:20px;min-height:20px;margin:0;padding:0;accent-color:var(--accent);cursor:ew-resize}
+.record-scroll-control input:disabled{opacity:.4;cursor:default}
+.record-scroll-control span{width:56px;flex:none;text-align:right;font:inherit;white-space:nowrap}
+.intervals{flex:1 1 100%;width:100%;flex-wrap:nowrap;overflow-x:auto;min-width:0;padding:2px 0;scrollbar-width:thin}
+.intervals button{flex:none;white-space:nowrap}

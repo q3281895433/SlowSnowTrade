@@ -25,7 +25,7 @@
       chart: { x: middleX, y: 10, w: middleW, h: Math.max(390, h - 174) },
       order: { x: w - right - 10, y: 10, w: right, h: Math.max(220, Math.round(h * .48)) },
       agent: { x: w - right - 10, y: Math.round(h * .50), w: right, h: Math.max(170, Math.round(h * .30)) },
-      activity: { x: 10, y: h - 148, w: w - 20, h: 138 },
+      activity: { x: 10, y: h - 180, w: w - 20, h: 170 },
       discover: {x:Math.max(10,(w-620)/2),y:40,w:620,h:Math.min(530,h-60),hidden:true}
     };
   }
@@ -67,7 +67,7 @@
     event.preventDefault(); event.stopPropagation(); focus(id); handle.setPointerCapture(event.pointerId);
     const origin = { ...rect }, startX = event.clientX, startY = event.clientY;
     const minWidth = { markets: 190, chart: 350, order: 250, agent: 250, activity: 380 }[id] || 220;
-    const minHeight = { chart: 440, activity: 100 }[id] || 135;
+    const minHeight = { chart: 440, activity: 160 }[id] || 135;
     const move = point => {
       const dx = point.clientX - startX, dy = point.clientY - startY, bound = dimension();
       let x = origin.x, y = origin.y, w = origin.w, h = origin.h;
@@ -92,6 +92,7 @@
     for (const item of nodes) {
       const input = saved?.[item.id], d = base[item.id];
       const r = input && Number.isFinite(input.x) && Number.isFinite(input.y) && Number.isFinite(input.w) && Number.isFinite(input.h) ? { ...d, ...input } : { ...d };
+      if(item.id==='activity'&&r.h<160)r.h=160;
       r.z = Number.isFinite(r.z) ? r.z : ++topZ;
       topZ = Math.max(topZ, r.z);
       rects.set(item.id, r); paint(item.id);

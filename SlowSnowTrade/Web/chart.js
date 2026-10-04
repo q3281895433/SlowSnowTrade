@@ -166,7 +166,7 @@
       this.onCandleClick?.({ candle, previous: this.candles[index - 1] || null, start: this.selection.length === 2 ? this.selection[0] : null, bars: this.selection.length === 2 ? index - this.candles.findIndex(item => item.time === this.selection[0].time) : 0, event });
     }
     resetView() { this.panBars = 0; this.draw(); }
-    intervalMs() { const items = this.candles; return items.length > 1 ? items[items.length - 1].time - items[items.length - 2].time : 900000; }
+    intervalMs() { const items = this.candles; return this.intervalDuration || (items.length > 1 ? items[items.length - 1].time - items[items.length - 2].time : 900000); }
     timeAt(index) {
       const items = this.candles, duration = this.intervalMs();
       if (!items.length) return Date.now();

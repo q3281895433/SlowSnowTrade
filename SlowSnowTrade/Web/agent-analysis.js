@@ -1,6 +1,6 @@
 (function () {
   const studies=window.PTIndicators;
-  const periods={'1m':60000,'5m':300000,'15m':900000,'1h':3600000,'4h':14400000,'1d':86400000};
+  const periods=window.PTTimeframes.periods;
   const finite=n=>Number.isFinite(n)?Number(n.toPrecision(10)):null;
   function candles(rows) {
     return (rows||[]).map(row=>Array.isArray(row)?{time:Number(row[0]),open:Number(row[1]),high:Number(row[2]),low:Number(row[3]),close:Number(row[4]),volume:Number(row[5])}:row)
@@ -9,13 +9,13 @@
   }
   function snapshot(dataset,asOf) {
     if(!dataset)return null;
-    const duration=periods[dataset.interval],all=candles(dataset.rows),closed=all.filter(c=>c.time+duration<=asOf);
+    const duration=periods[dataset.interval],all=window.PTTimeframes.group(candles(dataset.rows),dataset.interval),closed=all.filter(c=>c.time+duration<=asOf);
     const values=closed.map(c=>c.close),last=closed.at(-1),previous=closed.at(-2),range=closed.slice(-20);
     if(!last)return {source:dataset.source,category:dataset.category,interval:dataset.interval,asOf,error:dataset.error||'没有在分析时点前已收盘的 K 线'};
     const ma=n=>finite(studies.sma(values,n).at(-1)),ema=n=>closed.length>=n?finite(studies.ema(values,n).at(-1)):null;
     const oscillator=closed.length>=35?studies.macd(values).at(-1):null;
     const atr=finite(studies.atr(closed).at(-1)),band=studies.bollinger(values).at(-1),avgVolume=closed.length>=21?studies.sma(closed.slice(0,-1).map(c=>c.volume),20).at(-1):null;
-    return {source:dataset.source,category:dataset.category,interval:dataset.interval,asOf,candleCount:closed.length,firstCandleTime:closed[0].time,lastClosedAt:last.time+duration,
+    return {source:dataset.source,category:dataset.category,interval:dataset.interval,sourceInterval:dataset.sourceInterval||dataset.interval,asOf,candleCount:closed.length,firstCandleTime:closed[0].time,lastClosedAt:last.time+duration,
       lastClosedPrice:last.close,changeLastBarPercent:previous?finite((last.close/previous.close-1)*100):null,
       change20BarsPercent:range.length===20?finite((last.close/range[0].open-1)*100):null,
       ma20:ma(20),ma50:ma(50),ma100:ma(100),ema12:ema(12),ema26:ema(26),
@@ -29,7 +29,7 @@
   function sample(trade,datasets,account,quote) {
     const now=Date.now(),entry=Number(trade.openedAt),exit=Number(trade.closedAt),get=purpose=>datasets.find(d=>d.purpose===purpose);
     const atEntry=snapshot(get('entry'),entry),atExit=snapshot(get('exit'),exit);
-    const intratrade=get('exit'),duration=periods[intratrade?.interval],bars=candles(intratrade?.rows).filter(c=>c.time>=entry&&c.time+duration<=exit);
+    const intratrade=get('exit'),duration=periods[intratrade?.interval],bars=window.PTTimeframes.group(candles(intratrade?.rows),intratrade?.interval).filter(c=>c.time>=entry&&c.time+duration<=exit);
     const sign=trade.side==='long'?1:-1,stop=Number(trade.stopLoss),target=Number(trade.takeProfit);
     const stopDistance=stop>0?Math.abs(trade.entry-stop):null,targetDistance=target>0?Math.abs(target-trade.entry):null;
     const past=(account.history||[]).filter(t=>Number(t.closedAt)<=exit).sort((a,b)=>b.closedAt-a.closedAt).slice(0,30);
