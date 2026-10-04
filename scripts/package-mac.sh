@@ -14,4 +14,4 @@ trap 'rm -rf "$STAGE"' EXIT
 ditto "$APP" "$STAGE/SlowSnowTrade.app"
 ln -s /Applications "$STAGE/Applications"
 hdiutil create -volname SlowSnowTrade -srcfolder "$STAGE" -ov -format UDZO \
-  "$ROOT/release/SlowSnowTrade-1.6.1-macOS-$ARCH.dmg"
+  "$ROOT/release/SlowSnowTrade-1.6.2-macOS-$ARCH.dmg"
