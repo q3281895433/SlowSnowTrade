@@ -27,6 +27,21 @@
     NSString *iconPath = [[[NSBundle mainBundle] resourcePath] stringByAppendingPathComponent:@"AppIcon.icns"];
     NSImage *icon = [[NSImage alloc] initWithContentsOfFile:iconPath];
     if (icon) NSApp.applicationIconImage = icon;
+    NSMenu *mainMenu = [NSMenu new];
+    NSMenuItem *applicationItem = [NSMenuItem new]; [mainMenu addItem:applicationItem];
+    NSMenu *applicationMenu = [NSMenu new];
+    [applicationMenu addItemWithTitle:@"关于小雪交易" action:@selector(orderFrontStandardAboutPanel:) keyEquivalent:@""];
+    [applicationMenu addItem:NSMenuItem.separatorItem];
+    [applicationMenu addItemWithTitle:@"隐藏小雪交易" action:@selector(hide:) keyEquivalent:@"h"];
+    [applicationMenu addItemWithTitle:@"退出小雪交易" action:@selector(terminate:) keyEquivalent:@"q"];
+    applicationItem.submenu = applicationMenu;
+    NSMenuItem *editItem = [NSMenuItem new]; editItem.title = @"编辑"; [mainMenu addItem:editItem];
+    NSMenu *editMenu = [NSMenu new];
+    [editMenu addItemWithTitle:@"剪切" action:@selector(cut:) keyEquivalent:@"x"];
+    [editMenu addItemWithTitle:@"复制" action:@selector(copy:) keyEquivalent:@"c"];
+    [editMenu addItemWithTitle:@"粘贴" action:@selector(paste:) keyEquivalent:@"v"];
+    [editMenu addItemWithTitle:@"全选" action:@selector(selectAll:) keyEquivalent:@"a"];
+    editItem.submenu = editMenu; NSApp.mainMenu = mainMenu;
     self.session = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
     self.contractConfigs = [NSMutableDictionary dictionary];
     self.contractTiers = [NSMutableDictionary dictionary];
@@ -62,6 +77,13 @@
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
     (void)sender;
+    return YES;
+}
+
+- (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)visible {
+    (void)sender; (void)visible;
+    [self.window makeKeyAndOrderFront:nil];
+    [NSApp activateIgnoringOtherApps:YES];
     return YES;
 }
 
@@ -234,7 +256,8 @@
     NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"^[A-Z0-9]{1,25}USDT$" options:0 error:nil];
     return [regex numberOfMatchesInString:symbol options:0 range:NSMakeRange(0, symbol.length)] == 1;
 }
-- (BOOL)validInterval:(NSString *)interval { return [@[@"1m", @"5m", @"15m", @"1h", @"4h", @"1d"] containsObject:interval]; }
+- (BOOL)validInterval:(NSString *)interval { return [@[@"1m", @"3m", @"5m", @"15m", @"30m", @"1h", @"4h", @"6h", @"12h", @"1d", @"2d", @"1w"] containsObject:interval]; }
+- (NSString *)marketInterval:(NSString *)interval { return [@[@"2d", @"1w"] containsObject:interval] ? @"1d" : interval; }
 
 - (void)requestJSON:(NSURL *)url completion:(void (^)(id, NSError *))completion {
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url]; request.timeoutInterval = 12; request.cachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
@@ -250,7 +273,7 @@
     return [value isKindOfClass:NSString.class] && [value isEqual:@"bitget"] ? @"bitget" : @"binance";
 }
 - (NSString *)bitgetInterval:(NSString *)interval {
-    return @{ @"1m": @"1m", @"5m": @"5m", @"15m": @"15m", @"1h": @"1H", @"4h": @"4H", @"1d": @"1D" }[interval] ?: @"15m";
+    return @{ @"1m": @"1m", @"3m": @"3m", @"5m": @"5m", @"15m": @"15m", @"30m": @"30m", @"1h": @"1H", @"4h": @"4H", @"6h": @"6H", @"12h": @"12H", @"1d": @"1D", @"2d": @"1D", @"1w": @"1D" }[interval] ?: @"15m";
 }
 - (void)emitContractRules:(NSString *)symbol {
     NSDictionary *config = self.contractConfigs[symbol];
@@ -323,6 +346,7 @@
     NSString *symbol = [message[@"symbol"] isKindOfClass:NSString.class] ? [message[@"symbol"] uppercaseString] : @"";
     NSString *interval = message[@"interval"];
     if (![self validSymbol:symbol] || ![self validInterval:interval]) return;
+    NSString *limit = [@[@"2d", @"1w"] containsObject:interval] ? @"1000" : @"500";
     NSString *choice = [message[@"source"] isKindOfClass:NSString.class] ? message[@"source"] : @"auto";
     NSNumber *requestId = [message[@"requestId"] isKindOfClass:NSNumber.class] ? message[@"requestId"] : @0;
     NSArray *sources = [choice isEqual:@"auto"] ? @[@"bitget", @"binance"] : @[[self marketSource:choice]];
@@ -332,10 +356,10 @@
         NSURLComponents *url;
         if ([source isEqual:@"bitget"]) {
             url = [NSURLComponents componentsWithString:@"https://api.bitget.com/api/v3/market/candles"];
-            url.queryItems = @[[NSURLQueryItem queryItemWithName:@"category" value:@"SPOT"], [NSURLQueryItem queryItemWithName:@"symbol" value:symbol], [NSURLQueryItem queryItemWithName:@"interval" value:[self bitgetInterval:interval]], [NSURLQueryItem queryItemWithName:@"limit" value:@"500"]];
+            url.queryItems = @[[NSURLQueryItem queryItemWithName:@"category" value:@"SPOT"], [NSURLQueryItem queryItemWithName:@"symbol" value:symbol], [NSURLQueryItem queryItemWithName:@"interval" value:[self bitgetInterval:interval]], [NSURLQueryItem queryItemWithName:@"limit" value:limit]];
         } else {
             url = [NSURLComponents componentsWithString:@"https://data-api.binance.vision/api/v3/klines"];
-            url.queryItems = @[[NSURLQueryItem queryItemWithName:@"symbol" value:symbol], [NSURLQueryItem queryItemWithName:@"interval" value:interval], [NSURLQueryItem queryItemWithName:@"limit" value:@"500"]];
+            url.queryItems = @[[NSURLQueryItem queryItemWithName:@"symbol" value:symbol], [NSURLQueryItem queryItemWithName:@"interval" value:[self marketInterval:interval]], [NSURLQueryItem queryItemWithName:@"limit" value:limit]];
         }
         [self requestJSON:url.URL completion:^(id object, NSError *error) {
             NSArray *rows = nil;
@@ -421,7 +445,7 @@
     if ([source isEqual:@"bitget"]) url = [NSURL URLWithString:@"wss://ws.bitget.com/v3/ws/public"];
     else {
         NSMutableArray *names = [NSMutableArray array];
-        for (NSString *symbol in valid) [names addObject:[NSString stringWithFormat:@"%@@kline_%@", symbol.lowercaseString, interval]];
+        for (NSString *symbol in valid) [names addObject:[NSString stringWithFormat:@"%@@kline_%@", symbol.lowercaseString, [self marketInterval:interval]]];
         url = [NSURL URLWithString:[NSString stringWithFormat:@"wss://data-stream.binance.vision/stream?streams=%@", [names componentsJoinedByString:@"/"]]];
     }
     self.stream = [self.session webSocketTaskWithURL:url];
@@ -463,7 +487,7 @@
             NSArray *rows = [payload isKindOfClass:NSDictionary.class] ? payload[@"data"] : nil;
             NSDictionary *row = [rows isKindOfClass:NSArray.class] && rows.count ? rows[0] : nil;
             if ([arg isKindOfClass:NSDictionary.class] && [row isKindOfClass:NSDictionary.class] && [self validSymbol:arg[@"symbol"]]) {
-                tick = @{ @"source": source, @"s": arg[@"symbol"], @"t": row[@"start"] ?: @0, @"o": row[@"open"] ?: @0, @"h": row[@"high"] ?: @0, @"l": row[@"low"] ?: @0, @"c": row[@"close"] ?: @0, @"v": row[@"volume"] ?: @0 };
+                tick = @{ @"source": source, @"i": [self marketInterval:interval], @"s": arg[@"symbol"], @"t": row[@"start"] ?: @0, @"o": row[@"open"] ?: @0, @"h": row[@"high"] ?: @0, @"l": row[@"low"] ?: @0, @"c": row[@"close"] ?: @0, @"v": row[@"volume"] ?: @0 };
             }
         } else {
             NSDictionary *event = [payload isKindOfClass:NSDictionary.class] ? (payload[@"data"] ?: payload) : nil;
@@ -498,11 +522,12 @@
         NSURLComponents *url = [NSURLComponents componentsWithString:old ? @"https://api.bitget.com/api/v3/market/history-candles" : @"https://api.bitget.com/api/v3/market/candles"];
         url.queryItems = @[[NSURLQueryItem queryItemWithName:@"category" value:@"USDT-FUTURES"], [NSURLQueryItem queryItemWithName:@"symbol" value:job[@"symbol"]],
             [NSURLQueryItem queryItemWithName:@"interval" value:[self bitgetInterval:job[@"interval"]]], [NSURLQueryItem queryItemWithName:@"endTime" value:[NSString stringWithFormat:@"%.0f", end]],
-            [NSURLQueryItem queryItemWithName:@"limit" value:old ? @"100" : @"200"]];
+            [NSURLQueryItem queryItemWithName:@"limit" value:old ? @"100" : ([@[@"2d", @"1w"] containsObject:job[@"interval"]] ? @"1000" : @"200")]];
         dispatch_group_enter(group);
         [self requestJSON:url.URL completion:^(id object, NSError *error) {
             NSArray *rows = [object isKindOfClass:NSDictionary.class] && [object[@"code"] isEqual:@"00000"] && [object[@"data"] isKindOfClass:NSArray.class] ? object[@"data"] : @[];
             NSMutableDictionary *dataset = [job mutableCopy];
+            dataset[@"sourceInterval"] = [self marketInterval:job[@"interval"]];
             dataset[@"source"] = @"Bitget"; dataset[@"category"] = @"USDT-FUTURES"; dataset[@"rows"] = rows;
             if (error || !rows.count) dataset[@"error"] = error.localizedDescription ?: @"该时段未返回合约 K 线";
             @synchronized(datasets) { [datasets addObject:dataset]; }
