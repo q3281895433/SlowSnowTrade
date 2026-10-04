@@ -17,7 +17,7 @@ MACOS="$CONTENTS/MacOS"
 mkdir -p "$RESOURCES" "$MACOS" "$RESOURCES/assets"
 cp "$ROOT/SlowSnowTrade/Web/index.html" "$ROOT/SlowSnowTrade/Web/styles.css" \
    "$ROOT/SlowSnowTrade/Web/app.js" "$ROOT/SlowSnowTrade/Web/trading.js" \
-   "$ROOT/SlowSnowTrade/Web/chart.js" "$ROOT/SlowSnowTrade/Web/indicators.js" \
+   "$ROOT/SlowSnowTrade/Web/chart.js" "$ROOT/SlowSnowTrade/Web/indicators.js" "$ROOT/SlowSnowTrade/Web/timeframes.js" \
    "$ROOT/SlowSnowTrade/Web/window-manager.js" "$ROOT/SlowSnowTrade/Web/agent-analysis.js" "$RESOURCES/"
 cp "$ROOT/SlowSnowTrade/Agent/review-system-prompt.txt" "$RESOURCES/"
 cp "$ROOT/SlowSnowTrade/Web/assets/snowflakes.svg" "$RESOURCES/assets/"
@@ -49,12 +49,14 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
     <key>CFBundleName</key><string>SlowSnowTrade</string>
     <key>CFBundleDisplayName</key><string>SlowSnowTrade</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.6.1</string>
-    <key>CFBundleVersion</key><string>9</string>
+    <key>CFBundleShortVersionString</key><string>1.6.2</string>
+    <key>CFBundleVersion</key><string>10</string>
     <key>CFBundleIconFile</key><string>AppIcon.icns</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.finance</string>
     <key>NSHighResolutionCapable</key><true/>
+    <key>LSUIElement</key><false/>
+    <key>LSBackgroundOnly</key><false/>
 </dict>
 </plist>
 PLIST
