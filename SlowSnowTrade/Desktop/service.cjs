@@ -3,7 +3,8 @@ const path = require('node:path');
 const WebSocket = require('ws');
 const SYMBOL = /^[A-Z0-9]{1,25}USDT$/;
 const ID = /^[A-Za-z0-9_-]{1,100}$/;
-const intervals = { '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1H', '4h': '4H', '1d': '1D' };
+const intervals = { '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m', '1h': '1H', '4h': '4H', '6h': '6H', '12h': '12H', '1d': '1D', '2d': '1D', '1w': '1D' };
+const marketInterval = interval => ['2d','1w'].includes(interval) ? '1d' : interval;
 const sourceOf = source => source === 'bitget' ? 'bitget' : 'binance';
 const symbolsOf = values => [...new Set(Array.isArray(values) ? values.filter(s => typeof s === 'string' && SYMBOL.test(s)) : [])].slice(0, 200);
 const rowsOf = object => object?.code === '00000' && Array.isArray(object.data) ? object.data : [];
@@ -121,10 +122,11 @@ class DesktopService {
   async fetchKlines(message) {
     const { symbol, interval, requestId } = message;
     if (!SYMBOL.test(symbol) || !intervals[interval]) return;
+    const limit = marketInterval(interval) !== interval ? '1000' : '500';
     const sources = message.source === 'auto' ? ['bitget', 'binance'] : [sourceOf(message.source)];
     try {
       const data = await Promise.any(sources.map(async source => {
-        const url = source === 'bitget' ? urlFor('https://api.bitget.com/api/v3/market/candles', { category: 'SPOT', symbol, interval: intervals[interval], limit: '500' }) : urlFor('https://data-api.binance.vision/api/v3/klines', { symbol, interval, limit: '500' });
+        const url = source === 'bitget' ? urlFor('https://api.bitget.com/api/v3/market/candles', { category: 'SPOT', symbol, interval: intervals[interval], limit }) : urlFor('https://data-api.binance.vision/api/v3/klines', { symbol, interval: marketInterval(interval), limit });
         const object = await this.request(url); const rows = source === 'bitget' ? rowsOf(object) : object;
         if (!Array.isArray(rows) || !rows.length) throw new Error('行情源未返回 K 线');
         return { source, symbol, interval, requestId, rows };
@@ -216,7 +218,7 @@ class DesktopService {
     this.stopStream(); const symbols = symbolsOf(message.symbols).slice(0, 20), interval = message.interval, source = sourceOf(message.source);
     if (!symbols.length || !intervals[interval] || this.closed) return;
     const generation = this.generation;
-    const url = source === 'bitget' ? 'wss://ws.bitget.com/v3/ws/public' : 'wss://data-stream.binance.vision/stream?streams=' + symbols.map(s => `${s.toLowerCase()}@kline_${interval}`).join('/');
+    const url = source === 'bitget' ? 'wss://ws.bitget.com/v3/ws/public' : 'wss://data-stream.binance.vision/stream?streams=' + symbols.map(s => `${s.toLowerCase()}@kline_${marketInterval(interval)}`).join('/');
     const socket = this.socket = new WebSocket(url, { handshakeTimeout: 12000, maxPayload: 2 * 1024 * 1024 });
     socket.on('open', () => {
       if (source === 'bitget') {
@@ -230,7 +232,7 @@ class DesktopService {
       let tick;
       if (source === 'bitget') {
         const row = payload.data?.[0], symbol = payload.arg?.symbol;
-        if (symbols.includes(symbol) && row && !Array.isArray(row)) tick = { source, s: symbol, t: row.start, o: row.open, h: row.high, l: row.low, c: row.close, v: row.volume };
+        if (symbols.includes(symbol) && row && !Array.isArray(row)) tick = { source, i: marketInterval(interval), s: symbol, t: row.start, o: row.open, h: row.high, l: row.low, c: row.close, v: row.volume };
       } else { const k = (payload.data || payload).k; if (k && symbols.includes(k.s)) tick = { ...k, source }; }
       if (tick) { this.emit('marketTick', tick); this.emit('streamState', { connected: true }); }
     });
@@ -254,10 +256,10 @@ class DesktopService {
     ];
     if (symbol !== 'BTCUSDT') jobs.push({ purpose: 'bitcoin', symbol: 'BTCUSDT', interval: '1h', endTime: now });
     const datasets = await Promise.all(jobs.map(async job => {
-      const result = { ...job, source: 'Bitget', category: 'USDT-FUTURES', rows: [] };
+      const result = { ...job, sourceInterval: marketInterval(job.interval), source: 'Bitget', category: 'USDT-FUTURES', rows: [] };
       try {
         const old = now - Number(job.endTime) > 89 * 86400000;
-        result.rows = rowsOf(await this.request(urlFor('https://api.bitget.com/api/v3/market/' + (old ? 'history-candles' : 'candles'), { category: 'USDT-FUTURES', symbol: job.symbol, interval: intervals[job.interval], endTime: String(Math.round(Number(job.endTime))), limit: old ? '100' : '200' })));
+        result.rows = rowsOf(await this.request(urlFor('https://api.bitget.com/api/v3/market/' + (old ? 'history-candles' : 'candles'), { category: 'USDT-FUTURES', symbol: job.symbol, interval: intervals[job.interval], endTime: String(Math.round(Number(job.endTime))), limit: old ? '100' : marketInterval(job.interval) !== job.interval ? '1000' : '200' })));
         if (!result.rows.length) result.error = '该时段未返回合约 K 线';
       } catch (error) { result.error = error.message; }
       return result;
