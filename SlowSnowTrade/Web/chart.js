@@ -340,7 +340,7 @@
       if (this.seriesCache) return this.seriesCache;
       const close = this.candles.map(item => item.close), studies = window.PTIndicators, names = this.overlays;
       const result = {};
-      for (const [name, period] of [['ma20',20],['ma50',50],['ma100',100]]) if (names.includes(name)) result[name] = studies.sma(close, period);
+      for (const name of names) { const period=studies.maPeriod(name);if(period)result[name]=studies.sma(close,period); }
       for (const [name, period] of [['ema12',12],['ema26',26]]) if (names.includes(name)) result[name] = studies.ema(close, period);
       if (names.includes('vwap')) result.vwap = studies.vwap(this.candles);
       if (names.includes('boll')) result.boll = studies.bollinger(close);
@@ -395,8 +395,7 @@
         ctx.fillStyle = '#9caea3'; ctx.fillText(new Date(this.timeAt(index)).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }), left + mark * chartW / 4, rect.height - 8);
       }
       const series = this.getSeries();
-      const colors = { ma20:'#24df91', ma50:'#ffdb59', ma100:'#ff5c71', ema12:'#68d9b0', ema26:'#ee9aaa', vwap:'#f2d98b' };
-      for (const name of this.overlays) if (series[name]) this.drawSeries(series[name], colors[name]);
+      for (const name of this.overlays) if (series[name]) this.drawSeries(series[name], window.PTIndicators.overlayColor(name));
       if (this.overlays.includes('boll')) {
         this.drawSeries(series.boll.map(item => item?.upper), '#e5b96d');
         this.drawSeries(series.boll.map(item => item?.middle), '#bda3e6');

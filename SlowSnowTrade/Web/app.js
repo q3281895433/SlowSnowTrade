@@ -9,7 +9,7 @@
     symbol:'BTCUSDT',interval:'15m',source:'auto',activeSource:'binance',
     watchlist:defaults.slice(),symbols:defaults.map(id=>({id,base:id.slice(0,-4)})),
     account:ledger.createAccount(),prices:{},contractQuotes:{},riskModels:{},candles:[],lines:{},markers:{},boxes:{},riskZones:{},analyses:{},autoAnalyze:false,
-    overlays:['ma20','ma50','ma100'],indicators:['macd'],leftTool:'trend',layout:{font:100,icon:34,indicatorHeight:150}
+    overlays:['ma20','ma50','ma100'],customMAPeriods:[],indicators:['macd'],leftTool:'trend',layout:{font:100,icon:34,indicatorHeight:150}
   };
   const chart = new window.PTChart($('chart'), $('crosshairChart'));
   const indicatorCharts = new Map();
@@ -31,9 +31,9 @@
   function note(message) { const el=$('toast');el.textContent=message;el.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.hidden=true,3300); }
   function record(type,data) { native({type:'record',record:{type,at:new Date().toISOString(),data}}); }
   function save() {
-    native({type:'saveState',state:{version:7,symbol:state.symbol,interval:state.interval,source:state.source,
+    native({type:'saveState',state:{version:8,symbol:state.symbol,interval:state.interval,source:state.source,
       watchlist:state.watchlist,symbols:state.symbols,account:state.account,lines:state.lines,markers:state.markers,boxes:state.boxes,riskZones:state.riskZones,leftTool:state.leftTool,
-      analyses:state.analyses,autoAnalyze:state.autoAnalyze,overlays:state.overlays,indicators:state.indicators,
+      analyses:state.analyses,autoAnalyze:state.autoAnalyze,overlays:state.overlays,customMAPeriods:state.customMAPeriods,indicators:state.indicators,
       layout:state.layout,windows:window.PTWindows.serialize()}});
   }
   function applyTextScale() {
@@ -42,6 +42,7 @@
     document.documentElement.style.setProperty('--study-height',state.layout.indicatorHeight+'px');
     $('fontScale').value=state.layout.font;$('fontScaleValue').textContent=state.layout.font+'%';
     $('iconScale').value=state.layout.icon;$('iconScaleValue').textContent=state.layout.icon;
+    positionStudyPickers();
   }
   function setConnection(label,detail,online) { $('connectionText').textContent=label;$('connectionDetail').textContent=detail;$('connectionDot').classList.toggle('online',!!online); }
   function sourceName(source) { return source==='bitget'?'Bitget':'Binance'; }
@@ -240,8 +241,55 @@
     requestAnimationFrame(()=>{paintQueued=false;marketPriceNodes();updateChartNumbers();renderAccount();renderOrder();if(chartDirty){chartDirty=false;chart.setData(state.candles,state.lines[state.symbol]||[],state.account.positions,state.account.history,state.markers[state.symbol]||[],state.boxes[state.symbol]||[],state.riskZones[state.symbol]||[]);}if(Date.now()-lastTablePaint>250)renderTable();});
   }
   function syncStudyChecks() {
-    for(const [id,selected] of [['overlayPicker',state.overlays],['indicatorPicker',state.indicators]])
+    for(const [id,selected] of [['overlayOptions',state.overlays],['indicatorOptions',state.indicators]])
       $(id).querySelectorAll('input[type=checkbox]').forEach(box=>{box.checked=selected.includes(box.value);});
+  }
+  function positionStudyPickers() {
+    const viewport=window.visualViewport,left=viewport?.offsetLeft||0,top=viewport?.offsetTop||0,width=viewport?.width||document.documentElement.clientWidth,height=viewport?.height||document.documentElement.clientHeight;
+    for(const picker of document.querySelectorAll('.study-picker[open]')){
+      const menu=$(picker.querySelector('summary').getAttribute('aria-controls'));if(!menu||menu.hidden)continue;
+      const anchor=picker.querySelector('summary').getBoundingClientRect(),below=Math.max(0,top+height-anchor.bottom-12),above=Math.max(0,anchor.top-top-12);
+      menu.style.maxWidth=Math.max(0,width-16)+'px';
+      const down=below>=Math.min(200,menu.scrollHeight)||below>=above;
+      menu.style.maxHeight=Math.max(0,Math.min(420,height-16,down?below:above))+'px';
+      menu.style.left=Math.max(left+8,Math.min(anchor.right-menu.offsetWidth,left+width-menu.offsetWidth-8))+'px';
+      menu.style.top=Math.max(top+8,Math.min(down?anchor.bottom+4:anchor.top-menu.offsetHeight-4,top+height-menu.offsetHeight-8))+'px';
+    }
+  }
+  function closeStudyPickers(except=null) {
+    for(const picker of document.querySelectorAll('.study-picker'))if(picker!==except){picker.open=false;$(picker.querySelector('summary').getAttribute('aria-controls')).hidden=true;picker.querySelector('summary').setAttribute('aria-expanded','false');}
+  }
+  function initializeStudyPickers() {
+    for(const picker of document.querySelectorAll('.study-picker')){
+      const summary=picker.querySelector('summary'),menu=$(summary.getAttribute('aria-controls'));
+      // Body-level fixed panels escape the floating windows' overflow clipping on macOS 13 too.
+      menu.classList.add('study-floating');menu.hidden=true;document.body.append(menu);
+      summary.setAttribute('aria-expanded','false');
+      picker.addEventListener('toggle',()=>{menu.hidden=!picker.open;summary.setAttribute('aria-expanded',String(picker.open));if(picker.open){closeStudyPickers(picker);positionStudyPickers();}});
+      summary.addEventListener('keydown',event=>{if(picker.open&&event.key==='Tab'&&!event.shiftKey){event.preventDefault();menu.querySelector('input,button')?.focus();}});
+      menu.addEventListener('keydown',event=>{
+        if(event.key!=='Tab')return;
+        const controls=[...menu.querySelectorAll('input,button')].filter(el=>!el.disabled),first=controls[0],last=controls.at(-1);
+        if((event.shiftKey&&event.target===first)||(!event.shiftKey&&event.target===last)){
+          event.preventDefault();closeStudyPickers();summary.focus();
+          if(!event.shiftKey){const next=picker.nextElementSibling;next?.querySelector('summary,input,select,button')?.focus();}
+        }
+      });
+    }
+    document.addEventListener('pointerdown',event=>{if(!event.target.closest('.study-picker,.study-options'))closeStudyPickers();});
+    document.addEventListener('scroll',event=>{if(!event.target.closest?.('.study-options'))positionStudyPickers();},true);
+    window.addEventListener('resize',positionStudyPickers);
+    window.visualViewport?.addEventListener('resize',positionStudyPickers);
+    window.visualViewport?.addEventListener('scroll',positionStudyPickers);
+    new ResizeObserver(positionStudyPickers).observe($('workspace'));
+  }
+  function renderCustomMAs() {
+    $('customMAList').innerHTML=state.customMAPeriods.map(period=>`<div class="custom-ma-row"><label><input type="checkbox" value="ma${period}"><span class="ma-swatch" style="background:${window.PTIndicators.overlayColor('ma'+period)}" aria-hidden="true"></span><span>MA ${period}</span></label><button type="button" data-remove-ma="${period}" aria-label="删除 MA ${period}">删除</button></div>`).join('');
+    positionStudyPickers();
+  }
+  function customMAMessage(message,error=false) {
+    const node=$('customMAMessage');node.hidden=!message;node.textContent=message;node.classList.toggle('error',error);
+    $('customMAPeriod').setAttribute('aria-invalid',String(error));positionStudyPickers();
   }
   function renderIndicatorPanels() {
     const container=$('indicatorPlots');for(const plot of indicatorCharts.values())plot.dispose();indicatorCharts.clear();container.replaceChildren();
@@ -380,6 +428,7 @@
     tooltip.hidden=false;
   };
   function initializeEvents() {
+    initializeStudyPickers();renderCustomMAs();
     $('intervals').innerHTML=intervals.map(value=>`<button data-interval="${value}" type="button" title="${intervalLabels[value]}" aria-label="${intervalLabels[value]} K 线" aria-pressed="${value===state.interval}">${value==='1w'?'周线':value==='2d'?'2日':value==='1d'?'日线':value}</button>`).join('');
     $('intervals').onclick=event=>{const button=event.target.closest('[data-interval]');if(!button||button.dataset.interval===state.interval)return;state.interval=button.dataset.interval;state.candles=[];sourceCandles=[];cancelTool();chart.clearSelection();chart.resetView();syncIntervals();save();renderChart();fetchMarket();};
     $('sourceSelect').onchange=()=>{state.source=$('sourceSelect').value;state.candles=[];cancelTool();chart.clearSelection();chart.resetView();save();renderChart();fetchMarket();};
@@ -388,11 +437,21 @@
     $('addSymbolButton').onclick=()=>{const query=$('symbolSearch').value.trim().toUpperCase(),found=state.symbols.find(item=>item.id===query||item.base===query);if(found)addSymbol(found.id);else note('请从搜索结果选择交易对');};
     $('autoAddButton').onclick=()=>{note('正在读取热门币种');native({type:'fetchTopSymbols',source:state.activeSource});};
     $('refreshButton').onclick=fetchMarket;$('chartResetButton').onclick=()=>chart.resetView();
-    document.addEventListener('keydown',event=>{if(event.key==='Escape'){cancelTool();chart.cancelPress();chart.clearSelection();$('chartMenu').hidden=true;}});
+    document.addEventListener('keydown',event=>{if(event.key==='Escape'){const picker=document.querySelector('.study-picker[open]');if(picker){closeStudyPickers();picker.querySelector('summary').focus();event.preventDefault();return;}cancelTool();chart.cancelPress();chart.clearSelection();$('chartMenu').hidden=true;}});
     $('historySlider').oninput=()=>chart.setPan(-Number($('historySlider').value));
     $('indicatorResizeHandle').addEventListener('pointerdown',event=>{event.preventDefault();const handle=event.currentTarget;handle.setPointerCapture(event.pointerId);const startY=event.clientY,startHeight=state.layout.indicatorHeight;const move=point=>{const max=Math.max(90,Math.min(360,$('workspace').clientHeight*.55));state.layout.indicatorHeight=Math.round(Math.max(90,Math.min(max,startHeight+startY-point.clientY)));document.documentElement.style.setProperty('--study-height',state.layout.indicatorHeight+'px');};const end=()=>{handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',end);handle.removeEventListener('pointercancel',end);save();};handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',end);handle.addEventListener('pointercancel',end);});
-    $('overlayPicker').onchange=event=>{const box=event.target;if(box.type!=='checkbox')return;state.overlays=window.PTIndicators.orderedToggle(state.overlays,box.value,box.checked);chart.setOverlays(state.overlays);save();};
-    $('indicatorPicker').onchange=event=>{const box=event.target;if(box.type!=='checkbox')return;state.indicators=window.PTIndicators.orderedToggle(state.indicators,box.value,box.checked);renderIndicatorPanels();if(box.checked)$('indicatorPlots').scrollTop=$('indicatorPlots').scrollHeight;save();};
+    $('overlayOptions').onchange=event=>{const box=event.target;if(box.type!=='checkbox')return;state.overlays=window.PTIndicators.orderedToggle(state.overlays,box.value,box.checked);chart.setOverlays(state.overlays);save();};
+    $('indicatorOptions').onchange=event=>{const box=event.target;if(box.type!=='checkbox')return;state.indicators=window.PTIndicators.orderedToggle(state.indicators,box.value,box.checked);renderIndicatorPanels();if(box.checked)$('indicatorPlots').scrollTop=$('indicatorPlots').scrollHeight;save();};
+    $('customMAPeriod').oninput=()=>customMAMessage('');
+    $('customMAForm').onsubmit=event=>{
+      event.preventDefault();const input=$('customMAPeriod'),match=/^(?:ma|m)?\s*(\d{1,4})$/i.exec(input.value.trim()),period=match?Number(match[1]):0;
+      if(period<1||period>1000){customMAMessage('请输入 1–1000 的整数，例如 60 或 M60。',true);input.focus();return;}
+      const name='ma'+period,exists=[20,50,100,...state.customMAPeriods].includes(period);
+      if(!exists)state.customMAPeriods.push(period);
+      state.overlays=window.PTIndicators.orderedToggle(state.overlays,name,true);renderCustomMAs();syncStudyChecks();chart.setOverlays(state.overlays);save();input.value='';
+      customMAMessage(`MA ${period} ${exists?'已启用':'已添加'}`);$('overlayOptions').scrollTop=$('overlayOptions').scrollHeight;input.focus({preventScroll:true});
+    };
+    $('customMAList').onclick=event=>{const button=event.target.closest('[data-remove-ma]');if(!button)return;const period=Number(button.dataset.removeMa);state.customMAPeriods=state.customMAPeriods.filter(value=>value!==period);state.overlays=state.overlays.filter(name=>name!=='ma'+period);renderCustomMAs();syncStudyChecks();chart.setOverlays(state.overlays);save();customMAMessage(`MA ${period} 已删除`);$('customMAPeriod').focus({preventScroll:true});};
     $('leftClickTool').onchange=()=>{cancelTool();state.leftTool=$('leftClickTool').value;chart.clearSelection();save();};
     $('indicatorPlots').onclick=event=>{const button=event.target.closest('[data-remove-indicator]');if(!button)return;state.indicators=state.indicators.filter(name=>name!==button.dataset.removeIndicator);syncStudyChecks();renderIndicatorPanels();save();};
     function setOrderMode(mode){orderMode=mode;for(const [id,value] of [['openMode','open'],['closeMode','close']]){$(id).classList.toggle('active',mode===value);$(id).setAttribute('aria-selected',String(mode===value));}$('amount').value='';renderOrder();if(mode==='close')sizeOrder(100);}
@@ -419,7 +478,7 @@
     $('tableBody').onclick=event=>{const row=event.target.closest('[data-select-position]');if(row&&!event.target.closest('button')){selectedPosition=row.dataset.selectPosition;const p=state.account.positions.find(p=>p.id===selectedPosition);if(p&&p.symbol!==state.symbol)changeSymbol(p.symbol);renderOrder();renderTable();}const cancel=event.target.closest('[data-cancel-order]');if(cancel){const o=ledger.cancelOrder(state.account,cancel.dataset.cancelOrder);if(o){record('order_cancelled',o);save();render();fetchContractRisk();}}const margin=event.target.closest('[data-margin]');if(margin){marginPosition=margin.dataset.margin;const p=state.account.positions.find(p=>p.id===marginPosition);$('marginPosition').textContent=symbolName(p.symbol)+' · '+(p.side==='long'?'做多':'做空')+' · 当前 '+format(p.margin)+' USDT';$('marginError').hidden=true;$('marginDialog').showModal();}const close=event.target.closest('[data-close]'),risk=event.target.closest('[data-risk]'),analysis=event.target.closest('[data-analyze]');if(close)closePosition(close.dataset.close);if(risk)showRisk(risk.dataset.risk);if(analysis){const p=state.account.history.find(item=>item.id===analysis.dataset.analyze);if(!p)return;selectedTrade=p.id;if(state.analyses[p.id]){renderInsight(state.analyses[p.id].analysis);renderTable();window.PTWindows.show('agent');}else analyze(p);}};
     $('chartStage').addEventListener('contextmenu',showChartMenu);
     $('chartMenu').onclick=event=>{const button=event.target.closest('[data-chart-action]');if(button)menuAction(button.dataset.chartAction,button);};
-    document.addEventListener('click',event=>{if(!event.target.closest('#chartMenu'))$('chartMenu').hidden=true;if(!event.target.closest('.study-picker'))document.querySelectorAll('.study-picker').forEach(item=>item.open=false);});
+    document.addEventListener('click',event=>{if(!event.target.closest('#chartMenu'))$('chartMenu').hidden=true;});
     $('saveLineButton').onclick=()=>{if(!editLine)return;Object.assign(editLine,{label:$('lineLabel').value.trim(),color:$('lineColor').value,width:Number($('lineWidth').value),dash:$('lineDash').value});save();renderChart();$('lineDialog').close();};
     ['walletButton','walletShortcut'].forEach(id=>$(id).onclick=()=>{$('walletCash').textContent=format(state.account.cash);$('walletError').hidden=true;$('walletDialog').showModal();});
     function wallet(sign){try{const movement=ledger.adjustBalance(state.account,Number($('walletAmount').value)*sign);record('balance_adjusted',movement);save();render();$('walletDialog').close();note((sign>0?'已加入 ':'已减去 ')+format(Math.abs(movement.amount))+' USDT');}catch(error){$('walletError').textContent=error.message;$('walletError').hidden=false;}}
@@ -434,18 +493,20 @@
     const data=event.data||{};
     if(event.type==='initialState'){
       const saved=data.state;
-      if(saved?.version>=2){for(const key of ['symbol','interval','watchlist','symbols','account','lines','markers','boxes','riskZones','leftTool','analyses','autoAnalyze','source','overlays','indicators','layout'])if(saved[key]!=null)state[key]=saved[key];}
+      if(saved?.version>=2){for(const key of ['symbol','interval','watchlist','symbols','account','lines','markers','boxes','riskZones','leftTool','analyses','autoAnalyze','source','overlays','customMAPeriods','indicators','layout'])if(saved[key]!=null)state[key]=saved[key];}
       if(saved?.version===2){state.overlays=saved.overlay==='ma'?['ma7','ma25']:saved.overlay==='boll'?['boll']:[];state.indicators=saved.indicator&&saved.indicator!=='none'?[saved.indicator]:['macd'];}
       state.layout={font:100,icon:34,indicatorHeight:150,...state.layout};state.markers=state.markers&&typeof state.markers==='object'?state.markers:{};state.source=['auto','binance','bitget'].includes(state.source)?state.source:'auto';
       if(!intervals.includes(state.interval))state.interval='15m';
       state.overlays=Array.isArray(state.overlays)?state.overlays:[];state.indicators=Array.isArray(state.indicators)?state.indicators:['macd'];
       state.boxes=state.boxes||{};state.riskZones=state.riskZones||{};state.account.orders=state.account.orders||[];state.account.orderHistory=state.account.orderHistory||[];state.account.movements=state.account.movements||[];state.analyses={...state.analyses,...(data.analyses||{})};state.leftTool=saved?.version>=7&&['trend','mark','buy','sell','measure'].includes(state.leftTool)?state.leftTool:'trend';$('leftClickTool').value=state.leftTool;
       if(!saved||saved.version<5)state.overlays=[...new Set(['ma20','ma50','ma100',...state.overlays.filter(name=>!['ma7','ma25','ma99'].includes(name))])];
+      state.overlays=[...new Set(state.overlays.filter(name=>window.PTIndicators.maPeriod(name)||['ema12','ema26','boll','vwap'].includes(name)))];
+      state.customMAPeriods=[...new Set([...(Array.isArray(state.customMAPeriods)?state.customMAPeriods:[]).map(Number),...state.overlays.map(window.PTIndicators.maPeriod)].filter(period=>Number.isInteger(period)&&period>=1&&period<=1000&&![20,50,100].includes(period)))];
       if(saved?.version<7)for(const lines of Object.values(state.lines))for(const line of lines){if(line.type==='horizontal'){line.b={time:line.a.time+21600000,price:line.a.price};line.width=.8;line.dash='dashed';line.legacyHorizontal=true;}else if(line.b)line.color=chart.trendColor(line.a,line.b);}
       const windows=saved?.windows?JSON.parse(JSON.stringify(saved.windows)):null;if(saved?.version<4&&windows?.chart&&windows?.indicators){windows.chart.h+=windows.indicators.h+8;delete windows.indicators;}
       window.PTWindows.restore(windows);applyTextScale();$('sourceSelect').value=state.source;
       $('dataPath').textContent='数据目录：'+data.dataPath;$('tradeLogPath').textContent='复盘目录：'+(data.tradeLogPath||'桌面/VScode/SlowSnowTrade/tradelog');$('keyStatus').textContent=data.hasKey?'已配置':'未配置';$('keyStatus').classList.toggle('saved',!!data.hasKey);
-      syncStudyChecks();renderIndicatorPanels();syncIntervals();
+      renderCustomMAs();syncStudyChecks();renderIndicatorPanels();syncIntervals();
       initialized=true;render();renderDiscovery();fetchMarket();fetchContractRisk();native({type:'fetchSeedTags'});return;
     }
     if(event.type==='marketSnapshot'){

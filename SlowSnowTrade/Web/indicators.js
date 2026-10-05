@@ -124,5 +124,10 @@
     }
   }
   function orderedToggle(list,name,checked) { return checked ? (list.includes(name)?list:[...list,name]) : list.filter(item=>item!==name); }
-  window.PTIndicators = { orderedToggle, sma, ema, bollinger, macd, rsi, vwap, kdj, atr, cci, obv, IndicatorChart };
+  function maPeriod(name) { const match=/^ma([1-9]\d{0,3})$/.exec(name),period=match?Number(match[1]):0;return period<=1000?period:0; }
+  function overlayColor(name) {
+    const colors={ma20:'#24df91',ma50:'#ffdb59',ma100:'#ff5c71',ema12:'#68d9b0',ema26:'#ee9aaa',vwap:'#f2d98b'};
+    return colors[name]||`hsl(${Math.round(maPeriod(name)*137.508)%360},75%,72%)`;
+  }
+  window.PTIndicators = { orderedToggle, maPeriod, overlayColor, sma, ema, bollinger, macd, rsi, vwap, kdj, atr, cci, obv, IndicatorChart };
 })();
