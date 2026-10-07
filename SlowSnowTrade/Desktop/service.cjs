@@ -19,7 +19,7 @@ class DesktopService {
     this.disk = Promise.resolve();
     this.configs = new Map(); this.tiers = new Map(); this.tierAt = new Map();
     this.pendingTiers = new Set(); this.sentRules = new Map(); this.riskSymbols = [];
-    this.controllers = new Set(); this.generation = 0; this.closed = false;
+    this.riskGeneration = 0; this.controllers = new Set(); this.generation = 0; this.closed = false;
   }
   async initialize() {
     await fs.mkdir(this.dataPath, { recursive: true });
@@ -179,6 +179,7 @@ class DesktopService {
   async fetchRisk() {
     if (this.closed || !this.riskSymbols.length) return;
     const symbols = [...this.riskSymbols]; const now = Date.now();
+    this.startRiskStream(symbols);
     if (!this.configBusy && now - (this.configAt || 0) > 21600000) {
       this.configBusy = true;
       this.request('https://api.bitget.com/api/v2/mix/market/contracts?productType=USDT-FUTURES').then(object => {
@@ -209,6 +210,35 @@ class DesktopService {
       const quotes = items.filter(i => symbols.includes(i.symbol) && Number(i.markPrice) > 0).map(i => ({ symbol: i.symbol, mark: i.markPrice, last: i.lastPr || i.markPrice, bid: i.bidPr || 0, ask: i.askPr || 0, time: i.ts || 0 }));
       this.emit('contractRiskSnapshot', { source: 'bitget', quotes, requestedSymbols: symbols, receivedAt: Date.now() });
     } finally { this.priceBusy = false; }
+  }
+  stopRiskStream() {
+    this.riskGeneration++;clearInterval(this.riskPingTimer);clearTimeout(this.riskReconnectTimer);
+    if(this.riskSocket){this.riskSocket.removeAllListeners();this.riskSocket.on('error',()=>{});this.riskSocket.terminate();this.riskSocket=null;}
+  }
+  startRiskStream(symbols) {
+    const key=[...symbols].sort().join(',');
+    if(this.riskKey===key && ((this.riskSocket && Date.now()-this.riskActivity<60000)||this.riskReconnectTimer))return;
+    this.stopRiskStream();this.riskReconnectTimer=null;if(this.closed||!symbols.length)return;
+    this.riskKey=key;this.riskActivity=Date.now();const generation=this.riskGeneration;
+    const socket=this.riskSocket=new WebSocket('wss://ws.bitget.com/v2/ws/public',{handshakeTimeout:12000,maxPayload:2*1024*1024});
+    socket.on('open',()=>{
+      socket.send(JSON.stringify({op:'subscribe',args:symbols.map(instId=>({instType:'USDT-FUTURES',channel:'ticker',instId}))}));
+      this.riskPingTimer=setInterval(()=>{if(socket.readyState===WebSocket.OPEN)socket.send('ping');},25000);
+    });
+    socket.on('message',buffer=>{
+      if(this.closed||generation!==this.riskGeneration)return;
+      const text=buffer.toString();this.riskActivity=Date.now();if(text==='pong')return;
+      let payload;try{payload=JSON.parse(text);}catch{return;}
+      const symbol=payload.arg?.instId;if(payload.arg?.channel!=='ticker'||!this.riskSymbols.includes(symbol))return;
+      const quotes=(Array.isArray(payload.data)?payload.data:[]).filter(row=>Number(row.markPrice)>0&&Number(row.lastPr)>0).map(row=>({symbol,mark:row.markPrice,last:row.lastPr,bid:row.bidPr,ask:row.askPr,time:row.ts||payload.ts}));
+      if(quotes.length)this.emit('contractRiskSnapshot',{source:'bitget',quotes,receivedAt:Date.now()});
+    });
+    socket.on('error',()=>{}); // REST stays active while the public stream reconnects.
+    socket.on('close',()=>{
+      if(this.closed||generation!==this.riskGeneration)return;
+      clearInterval(this.riskPingTimer);this.riskSocket=null;
+      this.riskReconnectTimer=setTimeout(()=>{this.riskReconnectTimer=null;if(generation===this.riskGeneration)this.startRiskStream(this.riskSymbols);},3000);
+    });
   }
   stopStream() {
     this.generation++; clearInterval(this.pingTimer); clearTimeout(this.reconnectTimer);
@@ -291,13 +321,40 @@ class DesktopService {
     });
     await this.record({ type: 'analysis', data: record }); this.emit('analysis', record);
   }
+  async askAgent(message) {
+    if(this.chatBusy) throw new Error('请等待上一个问题完成');
+    if(!ID.test(message.id||'')||typeof message.question!=='string'||!message.question.trim()||message.question.length>2000) throw new Error('请输入 1–2000 字的问题');
+    this.chatBusy=true;
+    try {
+      const key=await this.key();if(!key)throw new Error('请先保存 DeepSeek API Key');
+      const saved=await this.readJSON('agent-chat.json',[]);
+      const history=(Array.isArray(saved)?saved:[]).filter(x=>typeof x?.question==='string'&&typeof x.answer==='string').slice(-200);
+      const prompt=await fs.readFile(path.join(path.dirname(this.promptPath),'chat-system-prompt.txt'),'utf8');
+      const context=message.context&&typeof message.context==='object'?message.context:null;
+      if(context&&Buffer.byteLength(JSON.stringify(context))>128*1024)throw new Error('提问上下文过大');
+      const messages=[{role:'system',content:prompt}];
+      for(const item of history.slice(-6))messages.push({role:'user',content:item.question.slice(0,2000)},{role:'assistant',content:item.answer.slice(0,12000)});
+      messages.push({role:'user',content:JSON.stringify({question:message.question.trim(),context})});
+      const json=await this.request('https://api.deepseek.com/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json'},body:JSON.stringify({model:'deepseek-flash',messages,max_tokens:4000,thinking:{type:'disabled'},temperature:.55})},90000);
+      const choice=json.choices?.[0],answer=choice?.message?.content;
+      if(typeof answer!=='string'||!answer.trim())throw new Error('DeepSeek 未返回回答，请重试');
+      const record={id:message.id,createdAt:Date.now(),question:message.question.trim(),answer,context,truncated:choice.finish_reason==='length'};
+      const records=[...history,record].slice(-200);
+      await this.enqueue(async()=>{
+        await this.atomic(path.join(this.dataPath,'agent-chat.json'),JSON.stringify(records,null,2));
+        const text='# 小雪 Agent 对话\n\n'+records.map(x=>`## ${new Date(x.createdAt).toISOString()}\n\n### 问题\n\n${x.question}\n\n### 回答\n\n${x.answer}\n`).join('\n');
+        await this.atomic(path.join(this.tradeLogPath,'agent-chat.md'),text);
+      });
+      this.emit('agentAnswer',record);
+    } finally {this.chatBusy=false;}
+  }
   async dispatch(message) {
     if (this.closed || !message || typeof message !== 'object' || typeof message.type !== 'string') return;
     try {
       if (Buffer.byteLength(JSON.stringify(message)) > 20 * 1024 * 1024) throw new Error('数据体积过大');
       switch (message.type) {
         case 'ready':
-          this.emit('initialState', { state: await this.readJSON('state.json'), hasKey: !!(await this.key()), dataPath: this.dataPath, tradeLogPath: this.tradeLogPath, analyses: await this.analyses() }); this.scheduleExport(); break;
+          this.emit('initialState', { state: await this.readJSON('state.json'), hasKey: !!(await this.key()), dataPath: this.dataPath, tradeLogPath: this.tradeLogPath, analyses: await this.analyses(), agentChat:await this.readJSON('agent-chat.json',[]) }); this.scheduleExport(); break;
         case 'fetchKlines': await this.fetchKlines(message); break;
         case 'fetchSymbols': await this.fetchSymbols(message); break;
         case 'fetchTopSymbols': await this.fetchTopSymbols(message); break;
@@ -312,16 +369,17 @@ class DesktopService {
         case 'saveKey': await this.saveKey(message.key); break;
         case 'fetchAnalysisContext': await this.fetchAnalysisContext(message); break;
         case 'analyze': await this.analyze(message); break;
+        case 'askAgent': await this.askAgent(message); break;
         case 'openTradeLog': await this.openTradeLog(); break;
       }
     } catch (error) {
-      const types = { analyze: 'analysisError', saveKey: 'keyStatus', fetchSymbols: 'symbolsError', fetchTopSymbols: 'topSymbolsError', fetchDiscoveryQuotes: 'topSymbolsError', fetchContractRisk: 'contractRiskError' };
-      this.emit(types[message.type] || 'storageError', { id: message.trade?.id || '', message: error.message, error: error.message, saved: false });
+      const types = { askAgent:'agentError', analyze: 'analysisError', saveKey: 'keyStatus', fetchSymbols: 'symbolsError', fetchTopSymbols: 'topSymbolsError', fetchDiscoveryQuotes: 'topSymbolsError', fetchContractRisk: 'contractRiskError' };
+      this.emit(types[message.type] || 'storageError', { id: message.type==='askAgent'?message.id:message.trade?.id || '', message: error.message, error: error.message, saved: false });
     }
   }
   close() {
     if (this.closed) return this.disk;
-    this.closed = true; clearInterval(this.riskTimer); this.stopStream();
+    this.closed = true; clearInterval(this.riskTimer); this.stopStream(); this.stopRiskStream();
     for (const controller of this.controllers) controller.abort();
     clearTimeout(this.exportTimer); this.exportTimer = null;
     return this.enqueue(() => this.exportTradeLog()).catch(error => this.emit('storageError', { message: error.message }));
