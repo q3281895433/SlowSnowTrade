@@ -235,10 +235,12 @@ button:disabled{opacity:.4;cursor:default}.order-field input:disabled{color:var(
 
 /* The records share one compact canvas; the fixed-size slider moves the whole table. */
 .table-scroll{overflow:auto;min-width:0;min-height:0;outline-offset:-2px}
-.table-surface{width:max-content;--record-columns:calc(82px * var(--font-scale)) calc(44px * var(--font-scale)) calc(104px * var(--font-scale)) calc(80px * var(--font-scale)) calc(110px * var(--font-scale)) calc(110px * var(--font-scale)) calc(110px * var(--font-scale)) calc(218px * var(--font-scale)) calc(180px * var(--font-scale))}
-.table-surface[data-table-kind=funds]{--record-columns:calc(170px * var(--font-scale)) calc(124px * var(--font-scale)) calc(150px * var(--font-scale))}
-.table-surface[data-table-kind=training]{--record-columns:calc(120px * var(--font-scale)) calc(212px * var(--font-scale)) calc(250px * var(--font-scale))}
-.table-surface .table-head,.table-surface .trade-row{grid-template-columns:var(--record-columns);gap:8px;min-width:0;padding:0 10px;width:100%;box-sizing:border-box}
+.table-surface{width:max-content;--record-columns:calc(72px * var(--font-scale)) calc(42px * var(--font-scale)) calc(82px * var(--font-scale)) calc(62px * var(--font-scale)) calc(86px * var(--font-scale)) calc(86px * var(--font-scale)) calc(88px * var(--font-scale)) calc(160px * var(--font-scale)) calc(150px * var(--font-scale))}
+.table-surface[data-table-kind=orders]{--record-columns:calc(72px * var(--font-scale)) calc(42px * var(--font-scale)) calc(92px * var(--font-scale)) calc(48px * var(--font-scale)) calc(88px * var(--font-scale)) calc(96px * var(--font-scale)) calc(112px * var(--font-scale)) calc(100px * var(--font-scale)) calc(68px * var(--font-scale))}
+.table-surface[data-table-kind=history]{--record-columns:calc(72px * var(--font-scale)) calc(42px * var(--font-scale)) calc(82px * var(--font-scale)) calc(62px * var(--font-scale)) calc(86px * var(--font-scale)) calc(86px * var(--font-scale)) calc(88px * var(--font-scale)) calc(138px * var(--font-scale)) calc(68px * var(--font-scale))}
+.table-surface[data-table-kind=funds]{--record-columns:calc(154px * var(--font-scale)) calc(100px * var(--font-scale)) calc(118px * var(--font-scale))}
+.table-surface[data-table-kind=training]{--record-columns:calc(100px * var(--font-scale)) calc(160px * var(--font-scale)) calc(170px * var(--font-scale))}
+.table-surface .table-head,.table-surface .trade-row{grid-template-columns:var(--record-columns);gap:6px;min-width:0;padding:0 8px;width:100%;box-sizing:border-box}
 .table-surface .table-head{position:sticky;top:0;z-index:1;background:#08131c;min-height:30px;height:auto;padding-top:7px;padding-bottom:7px}
 .table-surface .trade-row{min-height:44px;padding-top:5px;padding-bottom:5px}
 .table-surface .trade-row>span,.table-surface .table-head>span{min-width:0;overflow-wrap:anywhere}

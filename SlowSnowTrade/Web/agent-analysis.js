@@ -59,5 +59,5 @@
         noLookAhead:'入场复盘只使用开仓前已收盘 K 线；平仓后与当前行情仅供事后复盘和现在的条件式方案，不能证明当时可预知未来'},
       request:'中文给出交易诊断、改进建议、当前动向、条件式多空/震荡策略、参考交易方法及量化研究方向，避免复述账单。'};
   }
-  window.PTAnalysis={sample};
+  window.PTAnalysis={sample,snapshot};
 })();

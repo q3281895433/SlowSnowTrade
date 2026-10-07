@@ -123,11 +123,20 @@
       }
     }
   }
+  function williamsFractals(candles,lastClosedIndex=candles.length-1) {
+    const result=Array(candles.length).fill(null);
+    for(let i=2;i+2<=lastClosedIndex;i++) {
+      const center=candles[i],neighbors=[candles[i-2],candles[i-1],candles[i+1],candles[i+2]];
+      const high=neighbors.every(c=>center.high>c.high),low=neighbors.every(c=>center.low<c.low);
+      if(high||low)result[i]={high:high?center.high:null,low:low?center.low:null};
+    }
+    return result;
+  }
   function orderedToggle(list,name,checked) { return checked ? (list.includes(name)?list:[...list,name]) : list.filter(item=>item!==name); }
   function maPeriod(name) { const match=/^ma([1-9]\d{0,3})$/.exec(name),period=match?Number(match[1]):0;return period<=1000?period:0; }
   function overlayColor(name) {
     const colors={ma20:'#24df91',ma50:'#ffdb59',ma100:'#ff5c71',ema12:'#68d9b0',ema26:'#ee9aaa',vwap:'#f2d98b'};
     return colors[name]||`hsl(${Math.round(maPeriod(name)*137.508)%360},75%,72%)`;
   }
-  window.PTIndicators = { orderedToggle, maPeriod, overlayColor, sma, ema, bollinger, macd, rsi, vwap, kdj, atr, cci, obv, IndicatorChart };
+  window.PTIndicators = { orderedToggle, maPeriod, overlayColor, williamsFractals, sma, ema, bollinger, macd, rsi, vwap, kdj, atr, cci, obv, IndicatorChart };
 })();

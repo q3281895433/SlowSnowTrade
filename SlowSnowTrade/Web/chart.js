@@ -50,7 +50,17 @@
       canvas.addEventListener('dblclick', () => this.clearSelection());
       canvas.addEventListener('wheel', event => {
         event.preventDefault();
-        if (this.toolDraft || this.press?.boxing) return;
+        if (this.press?.boxing || !this.view) return;
+        const zoomPrice = !!this.toolDraft || event.shiftKey;
+        if (zoomPrice) {
+          const v=this.view, fraction=Math.max(0,Math.min(1,(event.clientY-this.canvas.getBoundingClientRect().top-v.top)/v.chartH));
+          const anchorPrice=v.max-fraction*(v.max-v.min);
+          const span=Math.max(anchorPrice*1e-8, (v.max-v.min)*(event.deltaY<0 ? .9 : 1/.9));
+          let min=anchorPrice-(1-fraction)*span;
+          min=Math.max(Number.EPSILON,min);
+          this.lockedRange={min,max:min+span};
+        }
+        if (event.shiftKey) { this.draw(); return; }
         const point = this.point(event), oldView = this.view;
         const anchor = oldView ? oldView.startIndex + (point.x - oldView.left) / oldView.step : this.candles.length - 1;
         const change = event.deltaY < 0 ? 1 : -1;
@@ -344,6 +354,7 @@
       for (const [name, period] of [['ema12',12],['ema26',26]]) if (names.includes(name)) result[name] = studies.ema(close, period);
       if (names.includes('vwap')) result.vwap = studies.vwap(this.candles);
       if (names.includes('boll')) result.boll = studies.bollinger(close);
+      if (names.includes('fractals')) result.fractals=studies.williamsFractals(this.candles,this.candles.findLastIndex(c=>c.time+this.intervalMs()<=Date.now()));
       return (this.seriesCache = result);
     }
     draw() {
@@ -370,7 +381,7 @@
       let min = levels.length ? Math.min(...levels) : last * .99;
       let max = levels.length ? Math.max(...levels) : last * 1.01;
       const spread = Math.max(max - min, max * .002),hasMarkers=ownPositions.length||this.trades.some(t=>t.symbol===window.PTAppSymbol?.()&&t.closedAt>=this.timeAt(startIndex)&&t.openedAt<=this.timeAt(endIndex))||this.markers.length;
-      const margin=hasMarkers?Math.max(.08,38/chartH):.08;min-=spread*margin;max+=spread*margin;
+      const margin=hasMarkers?Math.max(.20,38/chartH):.20;min-=spread*margin;max+=spread*margin;
       if(this.lockedRange){min=this.lockedRange.min;max=this.lockedRange.max;}
       this.view = { left, top, chartW, chartH, startIndex, endIndex, step, min, max };
       ctx.font = '11px -apple-system,sans-serif'; ctx.lineWidth = 1;
@@ -395,7 +406,18 @@
         ctx.fillStyle = '#9caea3'; ctx.fillText(new Date(this.timeAt(index)).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }), left + mark * chartW / 4, rect.height - 8);
       }
       const series = this.getSeries();
-      for (const name of this.overlays) if (series[name]) this.drawSeries(series[name], window.PTIndicators.overlayColor(name));
+      for (const name of this.overlays) if (series[name] && !['fractals','boll'].includes(name)) this.drawSeries(series[name], window.PTIndicators.overlayColor(name));
+      if(series.fractals) {
+        for(let i=Math.max(0,startIndex);i<=Math.min(this.candles.length-1,endIndex);i++) {
+          const fractal=series.fractals[i];if(!fractal)continue;
+          const x=left+(i-startIndex+.5)*step;
+          for(const [kind,sign,color] of [['high',-1,'#bde9d2'],['low',1,'#ff9aae']]) {
+            if(fractal[kind]==null)continue;
+            const y=top+(max-fractal[kind])/(max-min)*chartH+sign*11;
+            ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(x,y+sign*4);ctx.lineTo(x-3.5,y-sign*3);ctx.lineTo(x+3.5,y-sign*3);ctx.closePath();ctx.fill();
+          }
+        }
+      }
       if (this.overlays.includes('boll')) {
         this.drawSeries(series.boll.map(item => item?.upper), '#e5b96d');
         this.drawSeries(series.boll.map(item => item?.middle), '#bda3e6');

@@ -24,7 +24,7 @@
       markets: { x: 10, y: 10, w: left, h: Math.max(300, h - 174) },
       chart: { x: middleX, y: 10, w: middleW, h: Math.max(390, h - 174) },
       order: { x: w - right - 10, y: 10, w: right, h: Math.max(220, Math.round(h * .48)) },
-      agent: { x: w - right - 10, y: Math.round(h * .50), w: right, h: Math.max(170, Math.round(h * .30)) },
+      agent: { x: w - right - 10, y: Math.round(h * .50), w: right, h: Math.max(360, Math.round(h * .42)) },
       activity: { x: 10, y: h - 180, w: w - 20, h: 170 },
       discover: {x:Math.max(10,(w-620)/2),y:40,w:620,h:Math.min(530,h-60),hidden:true}
     };
@@ -38,7 +38,7 @@
   }
   function emit() { onChange?.(); }
   function focus(id) { const r = rects.get(id); if (!r) return; r.z = ++topZ; paint(id); for (const [key, frame] of frames) { const selected = key === id; frame.classList.toggle('active', selected); taskbar.querySelector(`[data-task="${key}"]`)?.classList.toggle('active', selected); } }
-  function show(id) { const r = rects.get(id); if (!r) return; r.hidden = false; focus(id); emit(); }
+  function show(id) { const r = rects.get(id); if (!r) return; const wasHidden=r.hidden;r.hidden = false; focus(id); if(wasHidden&&!matchMedia('(prefers-reduced-motion: reduce)').matches)frames.get(id)?.animate([{opacity:.4,translate:'0 8px'},{opacity:1,translate:'0 0'}],{duration:240,easing:'cubic-bezier(.16,1,.3,1)'});emit(); }
   function hide(id) { const r = rects.get(id); if (!r) return; r.hidden = true; paint(id); const next = [...rects].filter(([, item]) => !item.hidden).sort((a,b) => b[1].z - a[1].z)[0]; if (next) focus(next[0]); emit(); }
   function toggleMax(id) {
     const r = rects.get(id); if (!r) return;
@@ -67,7 +67,7 @@
     event.preventDefault(); event.stopPropagation(); focus(id); handle.setPointerCapture(event.pointerId);
     const origin = { ...rect }, startX = event.clientX, startY = event.clientY;
     const minWidth = { markets: 190, chart: 350, order: 250, agent: 250, activity: 380 }[id] || 220;
-    const minHeight = { chart: 440, activity: 160 }[id] || 135;
+    const minHeight = { chart: 440, activity: 160, agent: 300 }[id] || 135;
     const move = point => {
       const dx = point.clientX - startX, dy = point.clientY - startY, bound = dimension();
       let x = origin.x, y = origin.y, w = origin.w, h = origin.h;
@@ -93,6 +93,7 @@
       const input = saved?.[item.id], d = base[item.id];
       const r = input && Number.isFinite(input.x) && Number.isFinite(input.y) && Number.isFinite(input.w) && Number.isFinite(input.h) ? { ...d, ...input } : { ...d };
       if(item.id==='activity'&&r.h<160)r.h=160;
+      if(item.id==='agent'&&r.h<300)r.h=300;
       r.z = Number.isFinite(r.z) ? r.z : ++topZ;
       topZ = Math.max(topZ, r.z);
       rects.set(item.id, r); paint(item.id);

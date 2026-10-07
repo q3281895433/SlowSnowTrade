@@ -7,6 +7,7 @@
   <title>SlowSnowTrade</title>
   <link rel="icon" href="assets/app-icon.png">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="cockpit.css">
 </head>
 <body>
   <header class="topbar">
@@ -18,6 +19,8 @@
     <div class="top-spacer"></div>
     <label class="top-range">字号 <input id="fontScale" type="range" min="85" max="150" value="100" aria-label="字体大小"><output id="fontScaleValue">100%</output></label>
     <label class="top-range icon-range">图标 <input id="iconScale" type="range" min="24" max="56" value="34" aria-label="图标大小"><output id="iconScaleValue">34</output></label>
+    <button id="soundToggle" class="top-action" type="button" aria-pressed="true" aria-label="关闭界面音效">音效 开</button>
+    <button id="askAgentShortcut" class="top-action" type="button">问 Agent</button>
     <button id="walletButton" class="top-action" type="button">资金管理</button>
     <time id="clock"></time>
   </header>
@@ -48,7 +51,7 @@
           <div class="last-price"><strong id="lastPrice">—</strong><small>最新价格</small></div>
           <div class="header-fill"></div>
           <div class="intervals" id="intervals" aria-label="K 线周期"></div>
-          <details class="study-picker" id="overlayPicker"><summary aria-controls="overlayOptions">主图曲线</summary><div class="study-options" id="overlayOptions" role="group" aria-label="主图曲线选项"><label><input type="checkbox" value="ma20">MA 20</label><label><input type="checkbox" value="ma50">MA 50</label><label><input type="checkbox" value="ma100">MA 100</label><label><input type="checkbox" value="ema12">EMA 12</label><label><input type="checkbox" value="ema26">EMA 26</label><label><input type="checkbox" value="boll">BOLL</label><label><input type="checkbox" value="vwap">VWAP</label><div id="customMAList"></div><form class="custom-ma-form" id="customMAForm"><label for="customMAPeriod">自定义均线</label><div class="custom-ma-input"><input id="customMAPeriod" type="text" maxlength="12" autocomplete="off" spellcheck="false" placeholder="60 或 M60" aria-describedby="customMAHint customMAMessage"><button type="submit">添加</button></div><p id="customMAHint">周期 1–1000；以当前 K 线周期计算。数据不足时曲线留空。</p><p id="customMAMessage" role="status" aria-live="polite" hidden></p></form></div></details>
+          <details class="study-picker" id="overlayPicker"><summary aria-controls="overlayOptions">主图曲线</summary><div class="study-options" id="overlayOptions" role="group" aria-label="主图曲线选项"><label><input type="checkbox" value="ma20">MA 20</label><label><input type="checkbox" value="ma50">MA 50</label><label><input type="checkbox" value="ma100">MA 100</label><label><input type="checkbox" value="ema12">EMA 12</label><label><input type="checkbox" value="ema26">EMA 26</label><label><input type="checkbox" value="boll">BOLL</label><label><input type="checkbox" value="vwap">VWAP</label><label><input type="checkbox" value="fractals">Williams Fractals · 5 根</label><p class="study-hint">分形在右侧两根收盘后确认，箭头标在中心 K 线。</p><div id="customMAList"></div><form class="custom-ma-form" id="customMAForm"><label for="customMAPeriod">自定义均线</label><div class="custom-ma-input"><input id="customMAPeriod" type="text" maxlength="12" autocomplete="off" spellcheck="false" placeholder="60 或 M60" aria-describedby="customMAHint customMAMessage"><button type="submit">添加</button></div><p id="customMAHint">周期 1–1000；以当前 K 线周期计算。数据不足时曲线留空。</p><p id="customMAMessage" role="status" aria-live="polite" hidden></p></form></div></details>
           <details class="study-picker" id="indicatorPicker"><summary aria-controls="indicatorOptions">副图指标</summary><div class="study-options" id="indicatorOptions" role="group" aria-label="副图指标选项"><label><input type="checkbox" value="macd">MACD</label><label><input type="checkbox" value="rsi">RSI</label><label><input type="checkbox" value="kdj">KDJ</label><label><input type="checkbox" value="atr">ATR</label><label><input type="checkbox" value="cci">CCI</label><label><input type="checkbox" value="obv">OBV</label><label><input type="checkbox" value="volume">成交量</label></div></details>
           <label class="left-tool-label">左键<select id="leftClickTool" aria-label="左键短按功能"><option value="trend">趋势线</option><option value="mark">标记</option><option value="buy">买点</option><option value="sell">卖点</option><option value="measure">测量</option></select></label>
           <button id="chartResetButton" class="toolbar-button" type="button" title="回到最新 K 线">回到最新</button>
@@ -85,16 +88,28 @@
         </section>
         <div class="resize-handle horizontal inner" id="agentHandle" role="separator" aria-orientation="horizontal" title="拖动调整 Agent 面板高度"></div>
         <section class="panel agent-panel">
-          <div class="panel-head"><h2>DeepSeek Agent</h2><span class="agent-indicator" id="keyStatus">未配置</span></div>
-          <div class="key-input"><input id="apiKey" type="password" autocomplete="off" placeholder="粘贴 API Key" aria-label="DeepSeek API Key"><button id="saveKeyButton" type="button">保存</button></div>
+          <div class="panel-head"><h2><span class="agent-face" aria-hidden="true"><i></i><i></i></span>DeepSeek Agent</h2><span class="agent-indicator" id="keyStatus">未配置</span></div>
+          <div class="key-compact" id="keyCompact" hidden><span><i></i>API 已配置</span><button id="editKeyButton" type="button">更换</button></div>
+          <div class="key-input" id="keyInput"><input id="apiKey" type="password" autocomplete="off" placeholder="粘贴 API Key" aria-label="DeepSeek API Key"><button id="saveKeyButton" type="button">保存</button><button id="cancelKeyButton" type="button" hidden>收起</button></div>
+          <div class="agent-view-tabs" role="tablist" aria-label="Agent 内容"><button id="agentChatTab" role="tab" aria-controls="agentChatPanel" aria-selected="true" type="button">提问</button><button id="agentReviewTab" role="tab" aria-controls="agentReviewPanel" aria-selected="false" type="button">交易复盘</button></div>
+          <section class="agent-chat-panel" id="agentChatPanel" role="tabpanel" aria-labelledby="agentChatTab">
+            <div class="agent-messages" id="agentMessages" role="log" aria-label="Agent 对话" aria-live="polite"><div class="agent-welcome"><span class="agent-face large" aria-hidden="true"><i></i><i></i></span><strong>想了解这笔交易的什么？</strong><p>可以问趋势、风险、策略，也可以接着追问。</p></div></div>
+            <div class="agent-question-shortcuts"><button type="button" data-agent-question="分析当前图表的趋势、关键价位与策略失效条件。">分析走势</button><button type="button" data-agent-question="结合当前持仓分析风险，并建议下一步如何管理仓位。">持仓建议</button></div>
+            <form class="agent-composer" id="agentQuestionForm"><label class="sr-only" for="agentQuestion">向 Agent 提问</label><textarea id="agentQuestion" rows="2" maxlength="2000" placeholder="用中文说说你想了解什么…"></textarea><button id="agentSendButton" type="submit" aria-label="发送问题"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button></form>
+            <div class="agent-chat-footer"><label><input type="checkbox" id="agentAttachContext" checked>附带当前图表与持仓</label><span id="agentQuestionStatus" role="status">Enter 发送 · Shift+Enter 换行</span></div>
+          </section>
+          <section class="agent-review-panel" id="agentReviewPanel" role="tabpanel" aria-labelledby="agentReviewTab" hidden>
           <label class="check-row"><input id="autoAnalyze" type="checkbox"><span>平仓后自动复盘</span></label>
           <label class="review-picker">已保存复盘<select id="analysisSelect"><option value="">暂无复盘</option></select></label>
           <div class="agent-path" id="analysisMeta"></div>
           <div class="agent-insight" id="agentInsight">选择一笔已平仓交易查看分析。</div>
           <div class="agent-actions"><button id="analyzeLatestButton" type="button">分析最近一单</button><button id="regenerateAnalysisButton" type="button" disabled>重新生成所选复盘</button><span id="analysisStatus"></span></div>
+          </section>
+          <details class="agent-files"><summary>数据与复盘文件</summary>
           <button id="openTradeLog" class="discover-launch" type="button">打开 VScode / tradelog ↗</button>
           <div class="agent-path" id="tradeLogPath"></div>
           <div class="agent-path" id="dataPath">数据目录：桌面/deepseek/SlowSnowTrade</div>
+          </details>
         </section>
       </aside>
     </main>
@@ -132,10 +147,11 @@
     <button data-chart-action="cancel-box" type="button" hidden>取消此箱体</button>
     <button data-chart-action="cancel-tool" type="button" hidden>取消当前绘图</button>
   </div>
+  <dialog id="zoneOpenDialog" class="settings-dialog"><form method="dialog"><h2>是否按此区间开仓？</h2><p id="zoneOpenSummary"></p><p>区间目前仅为标注。确认后按合约实时盘口市价开仓，同时绑定止盈止损；按合约最新成交价触发。</p><label>买入币数量<input id="zoneOpenQuantity" type="number" min="0" step="any" required placeholder="输入数量"></label><label>杠杆倍数<input id="zoneOpenLeverage" type="number" min="1" max="100" step="1" value="10" required></label><p id="zoneOpenError" class="inline-error" hidden></p><div class="dialog-actions"><button type="button" data-close-dialog>仅保留标注</button><button id="confirmZoneOpen" type="button">确认市价开仓</button></div></form></dialog>
   <dialog id="lineDialog" class="settings-dialog"><form method="dialog"><h2>划线设置</h2><label>名称<input id="lineLabel" type="text" maxlength="40" placeholder="可选"></label><label>颜色<input id="lineColor" type="color" value="#66cfff"></label><label>粗细<input id="lineWidth" type="range" min="1" max="6" value="2"></label><label>样式<select id="lineDash"><option value="solid">实线</option><option value="dashed">虚线</option></select></label><div class="dialog-actions"><button value="cancel" type="button" data-close-dialog>取消</button><button id="saveLineButton" value="save" type="button">保存</button></div></form></dialog>
   <dialog id="walletDialog" class="settings-dialog"><form method="dialog"><h2>USDT 资金</h2><p>当前可用余额 <strong id="walletCash">0.00</strong> USDT</p><label>调整金额<input id="walletAmount" type="number" min="0.01" step="any" value="1000"></label><p id="walletError" class="inline-error" hidden></p><div class="dialog-actions"><button type="button" data-close-dialog>取消</button><button id="withdrawButton" type="button">减去 USDT</button><button id="depositButton" type="button">加入 USDT</button></div></form></dialog>
   <dialog id="marginDialog" class="settings-dialog"><form method="dialog"><h2>调整逐仓保证金</h2><p id="marginPosition"></p><label>金额 · USDT<input id="marginAmount" type="number" min="0.01" step="any" value="100"></label><p id="marginError" class="inline-error" hidden></p><div class="dialog-actions"><button type="button" data-close-dialog>取消</button><button id="removeMargin" type="button">减少</button><button id="addMargin" type="button">追加</button></div></form></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
-  <script src="trading.js"></script><script src="timeframes.js"></script><script src="indicators.js"></script><script src="chart.js"></script><script src="window-manager.js"></script><script src="agent-analysis.js"></script><script src="app.js"></script>
+  <script src="trading.js"></script><script src="timeframes.js"></script><script src="indicators.js"></script><script src="chart.js"></script><script src="window-manager.js"></script><script src="agent-analysis.js"></script><script src="interaction.js"></script><script src="agent-chat.js"></script><script src="app.js"></script>
 </body>
 </html>
