@@ -17,9 +17,10 @@ MACOS="$CONTENTS/MacOS"
 mkdir -p "$RESOURCES" "$MACOS" "$RESOURCES/assets"
 cp "$ROOT/SlowSnowTrade/Web/index.html" "$ROOT/SlowSnowTrade/Web/styles.css" \
    "$ROOT/SlowSnowTrade/Web/app.js" "$ROOT/SlowSnowTrade/Web/trading.js" \
+   "$ROOT/SlowSnowTrade/Web/cockpit.css" "$ROOT/SlowSnowTrade/Web/interaction.js" "$ROOT/SlowSnowTrade/Web/agent-chat.js" \
    "$ROOT/SlowSnowTrade/Web/chart.js" "$ROOT/SlowSnowTrade/Web/indicators.js" "$ROOT/SlowSnowTrade/Web/timeframes.js" \
    "$ROOT/SlowSnowTrade/Web/window-manager.js" "$ROOT/SlowSnowTrade/Web/agent-analysis.js" "$RESOURCES/"
-cp "$ROOT/SlowSnowTrade/Agent/review-system-prompt.txt" "$RESOURCES/"
+cp "$ROOT/SlowSnowTrade/Agent/review-system-prompt.txt" "$ROOT/SlowSnowTrade/Agent/chat-system-prompt.txt" "$RESOURCES/"
 cp "$ROOT/SlowSnowTrade/Web/assets/snowflakes.svg" "$RESOURCES/assets/"
 cp "$ROOT/SlowSnowTrade/Web/assets/app-icon.png" "$RESOURCES/assets/"
 rm -f "$RESOURCES/assets/snow-night.png"
@@ -35,7 +36,7 @@ iconutil -c icns "$ICONSET" -o "$RESOURCES/AppIcon.icns"
 
 clang -fobjc-arc "${ARCH_FLAGS[@]}" -mmacosx-version-min=13.0 \
   -isysroot "$SDK_PATH" \
-  -framework Cocoa -framework WebKit -framework Security \
+  -framework Cocoa -framework WebKit -framework Security -framework CoreFoundation \
   "$ROOT/SlowSnowTrade/Native/main.m" \
   -o "$MACOS/SlowSnowTrade"
 
@@ -49,8 +50,8 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
     <key>CFBundleName</key><string>SlowSnowTrade</string>
     <key>CFBundleDisplayName</key><string>SlowSnowTrade</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.6.3</string>
-    <key>CFBundleVersion</key><string>11</string>
+    <key>CFBundleShortVersionString</key><string>1.7.1</string>
+    <key>CFBundleVersion</key><string>15</string>
     <key>CFBundleIconFile</key><string>AppIcon.icns</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.finance</string>

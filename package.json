@@ -1,6 +1,6 @@
 {
   "name": "slowsnowtrade",
-  "version": "1.6.3",
+  "version": "1.7.1",
   "description": "小雪交易 · SlowSnowTrade desktop trading workstation",
   "private": true,
   "author": "q3281895433",
@@ -11,16 +11,38 @@
     "build:mac": "bash build-mac.sh universal",
     "icons": "python3 scripts/make-windows-icon.py"
   },
-  "dependencies": { "ws": "8.22.0" },
-  "devDependencies": { "electron": "44.5.1", "electron-builder": "26.15.3" },
+  "dependencies": {
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3"
+  },
   "build": {
     "appId": "com.local.papertrade",
     "productName": "SlowSnowTrade",
-    "directories": { "output": "release", "buildResources": "packaging" },
-    "files": ["SlowSnowTrade/Desktop/**/*", "SlowSnowTrade/Web/**/*", "SlowSnowTrade/Agent/**/*", "package.json", "!**/snow-night.png"],
+    "directories": {
+      "output": "release",
+      "buildResources": "packaging"
+    },
+    "files": [
+      "SlowSnowTrade/Desktop/**/*",
+      "SlowSnowTrade/Web/**/*",
+      "SlowSnowTrade/Agent/**/*",
+      "package.json",
+      "!**/snow-night.png"
+    ],
     "win": {
       "icon": "packaging/AppIcon.ico",
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "signExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "artifactName": "SlowSnowTrade-${version}-Windows-${arch}-Setup.${ext}"
     },
     "nsis": {
