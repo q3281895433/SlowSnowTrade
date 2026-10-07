@@ -1,6 +1,62 @@
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
 #import <Security/Security.h>
+#import <CoreFoundation/CoreFoundation.h>
+
+static BOOL SSTPinApplication(NSString *path) {
+    id saved=CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("persistent-apps"),CFSTR("com.apple.dock")));
+    if (![saved isKindOfClass:NSArray.class]) return NO;
+    NSBundle *bundle=[NSBundle bundleWithPath:path];if(!bundle.bundleIdentifier.length)return NO;
+    NSMutableArray *tiles=[saved mutableCopy];NSInteger index=NSNotFound;
+    for(NSInteger i=tiles.count-1;i>=0;i--) {
+        NSDictionary *data=tiles[i][@"tile-data"];
+        if([data[@"bundle-identifier"] isEqual:bundle.bundleIdentifier]||[data[@"file-label"] isEqual:@"SlowSnowTrade"]||[data[@"file-label"] isEqual:@"PaperTrade"]) {
+            index=i;[tiles removeObjectAtIndex:i];
+        }
+    }
+    NSDictionary *tile=@{@"GUID":@(arc4random()),@"tile-type":@"file-tile",@"tile-data":@{@"bundle-identifier":bundle.bundleIdentifier,@"file-label":@"SlowSnowTrade",@"file-type":@41,@"file-data":@{@"_CFURLString":[NSURL fileURLWithPath:path isDirectory:YES].absoluteString,@"_CFURLStringType":@15}}};
+    [tiles insertObject:tile atIndex:index==NSNotFound?tiles.count:MIN(index,tiles.count)];
+    CFPreferencesSetAppValue(CFSTR("persistent-apps"),(__bridge CFArrayRef)tiles,CFSTR("com.apple.dock"));
+    return CFPreferencesAppSynchronize(CFSTR("com.apple.dock"));
+}
+
+static void SSTReloadDock(void) {
+    NSTask *task=[NSTask new];task.executableURL=[NSURL fileURLWithPath:@"/usr/bin/killall"];task.arguments=@[@"-u",NSUserName(),@"Dock"];
+    [task launchAndReturnError:nil];
+}
+
+static BOOL SSTInstallFromImage(void) {
+    NSString *source=NSBundle.mainBundle.bundlePath;
+    if(![source hasPrefix:@"/Volumes/"]&&![source containsString:@"/AppTranslocation/"])return NO;
+    NSFileManager *files=NSFileManager.defaultManager;
+    NSString *folder=[files isWritableFileAtPath:@"/Applications"]?@"/Applications":[NSHomeDirectory() stringByAppendingPathComponent:@"Applications"];
+    NSString *target=[folder stringByAppendingPathComponent:@"SlowSnowTrade.app"];
+    NSAlert *alert=[NSAlert new];alert.messageText=@"安装小雪交易";
+    alert.informativeText=@"当前 App 位于临时磁盘映像。安装到应用程序并固定程序坞后，退出和弹出 DMG 都不会丢失入口。";
+    [alert addButtonWithTitle:@"安装并打开"];[alert addButtonWithTitle:@"暂时运行"];
+    if([alert runModal]!=NSAlertFirstButtonReturn)return NO;
+    NSError *error=nil;[files createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:&error];
+    NSString *stage=[folder stringByAppendingPathComponent:[NSString stringWithFormat:@".SlowSnowTrade-install-%@.app",NSUUID.UUID.UUIDString]];
+    if(error||![files copyItemAtPath:source toPath:stage error:&error]) {alert.messageText=@"安装失败";alert.informativeText=error.localizedDescription;[alert runModal];return NO;}
+    NSURL *targetURL=[NSURL fileURLWithPath:target];
+    if([files fileExistsAtPath:target]) {
+        if(![[NSBundle bundleWithPath:target].bundleIdentifier isEqual:NSBundle.mainBundle.bundleIdentifier]) {
+            [files removeItemAtPath:stage error:nil];return NO;
+        }
+        [files replaceItemAtURL:targetURL withItemAtURL:[NSURL fileURLWithPath:stage] backupItemName:nil options:0 resultingItemURL:nil error:&error];
+    } else [files moveItemAtPath:stage toPath:target error:&error];
+    if(error) { [files removeItemAtPath:stage error:nil];alert.messageText=@"安装失败";alert.informativeText=error.localizedDescription;[alert runModal];return NO; }
+    if(SSTPinApplication(target))SSTReloadDock();
+    [NSUserDefaults.standardUserDefaults setObject:target forKey:@"SSTDockPath"];
+    NSWorkspaceOpenConfiguration *configuration=[NSWorkspaceOpenConfiguration configuration];configuration.createsNewApplicationInstance=YES;
+    [NSWorkspace.sharedWorkspace openApplicationAtURL:targetURL configuration:configuration completionHandler:^(NSRunningApplication *app,NSError *launchError){
+        dispatch_async(dispatch_get_main_queue(),^{
+            if(app&&!launchError)[NSApp terminate:nil];
+            else {NSAlert *failure=[NSAlert new];failure.messageText=@"已安装，请从应用程序打开小雪交易";failure.informativeText=launchError.localizedDescription?:@"";[failure runModal];}
+        });
+    }];
+    return YES;
+}
 
 @interface PaperTradeDelegate : NSObject <NSApplicationDelegate, WKScriptMessageHandler, WKNavigationDelegate>
 @property(nonatomic, strong) NSWindow *window;
@@ -17,13 +73,24 @@
 @property(nonatomic, assign) BOOL riskPricesBusy;
 @property(nonatomic, strong) NSArray *riskSymbols;
 @property(nonatomic, strong) NSTimer *riskTimer;
+@property(nonatomic, strong) NSURLSessionWebSocketTask *riskStream;
+@property(nonatomic, assign) NSInteger riskGeneration;
+@property(nonatomic, strong) NSArray *riskSubscriptions;
+@property(nonatomic, strong) NSDate *riskActivity;
+@property(nonatomic, assign) BOOL riskReconnecting;
 @property(nonatomic, strong) NSMutableDictionary *sentRiskRules;
 @property(nonatomic, assign) BOOL logExportPending;
+@property(nonatomic, assign) BOOL chatBusy;
 @end
 
 @implementation PaperTradeDelegate
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     (void)notification;
+    if(SSTInstallFromImage())return;
+    NSString *bundlePath=NSBundle.mainBundle.bundlePath;
+    if(([bundlePath hasPrefix:@"/Applications/"]||[bundlePath hasPrefix:[NSHomeDirectory() stringByAppendingPathComponent:@"Applications/"]])&&![[NSUserDefaults.standardUserDefaults stringForKey:@"SSTDockPath"] isEqual:bundlePath]) {
+        if(SSTPinApplication(bundlePath)){[NSUserDefaults.standardUserDefaults setObject:bundlePath forKey:@"SSTDockPath"];SSTReloadDock();}
+    }
     NSString *iconPath = [[[NSBundle mainBundle] resourcePath] stringByAppendingPathComponent:@"AppIcon.icns"];
     NSImage *icon = [[NSImage alloc] initWithContentsOfFile:iconPath];
     if (icon) NSApp.applicationIconImage = icon;
@@ -31,6 +98,7 @@
     NSMenuItem *applicationItem = [NSMenuItem new]; [mainMenu addItem:applicationItem];
     NSMenu *applicationMenu = [NSMenu new];
     [applicationMenu addItemWithTitle:@"关于小雪交易" action:@selector(orderFrontStandardAboutPanel:) keyEquivalent:@""];
+    NSMenuItem *pin=[applicationMenu addItemWithTitle:@"固定到程序坞" action:@selector(pinToDock:) keyEquivalent:@""];pin.target=self;
     [applicationMenu addItem:NSMenuItem.separatorItem];
     [applicationMenu addItemWithTitle:@"隐藏小雪交易" action:@selector(hide:) keyEquivalent:@"h"];
     [applicationMenu addItemWithTitle:@"退出小雪交易" action:@selector(terminate:) keyEquivalent:@"q"];
@@ -80,6 +148,12 @@
     return YES;
 }
 
+- (void)pinToDock:(id)sender {
+    (void)sender;
+    if([NSBundle.mainBundle.bundlePath hasPrefix:@"/Volumes/"]||[NSBundle.mainBundle.bundlePath containsString:@"/AppTranslocation/"]){SSTInstallFromImage();return;}
+    if(SSTPinApplication(NSBundle.mainBundle.bundlePath))SSTReloadDock();
+}
+
 - (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)visible {
     (void)sender; (void)visible;
     [self.window makeKeyAndOrderFront:nil];
@@ -87,7 +161,7 @@
     return YES;
 }
 
-- (void)applicationWillTerminate:(NSNotification *)notification { (void)notification; [self.riskTimer invalidate]; [self stopStream]; }
+- (void)applicationWillTerminate:(NSNotification *)notification { (void)notification; [self.riskTimer invalidate]; [self stopStream]; [self stopRiskStream]; }
 
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)action decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
     (void)webView;
@@ -243,12 +317,72 @@
     return [[NSString alloc] initWithData:CFBridgingRelease(result) encoding:NSUTF8StringEncoding];
 }
 - (void)saveKey:(NSString *)key {
-    SecItemDelete((__bridge CFDictionaryRef)[self keyQuery]);
-    if (key.length == 0) { [self emit:@"keyStatus" data:@{ @"saved": @NO }]; return; }
+    key=[key stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (key.length == 0 || key.length > 1024) { [self emit:@"keyStatus" data:@{ @"saved": @NO, @"error":@"请输入有效 API Key" }]; return; }
     NSMutableDictionary *query = [[self keyQuery] mutableCopy];
-    query[(__bridge id)kSecValueData] = [key dataUsingEncoding:NSUTF8StringEncoding];
-    OSStatus status = SecItemAdd((__bridge CFDictionaryRef)query, NULL);
+    NSDictionary *attributes=@{(__bridge id)kSecValueData:[key dataUsingEncoding:NSUTF8StringEncoding]};
+    OSStatus status=SecItemUpdate((__bridge CFDictionaryRef)query,(__bridge CFDictionaryRef)attributes);
+    if(status==errSecItemNotFound) { [query addEntriesFromDictionary:attributes];status=SecItemAdd((__bridge CFDictionaryRef)query,NULL); }
     [self emit:@"keyStatus" data:@{ @"saved": @(status == errSecSuccess), @"error": status == errSecSuccess ? @"" : @"无法保存至钥匙串" }];
+}
+
+- (NSArray *)agentChatRecords {
+    NSData *data=[NSData dataWithContentsOfFile:[[self dataDirectory] stringByAppendingPathComponent:@"agent-chat.json"]];
+    id saved=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:nil]:nil;
+    NSMutableArray *records=[NSMutableArray array];
+    if([saved isKindOfClass:NSArray.class])for(id row in saved) {
+        if([row isKindOfClass:NSDictionary.class]&&[row[@"question"] isKindOfClass:NSString.class]&&[row[@"answer"] isKindOfClass:NSString.class])[records addObject:row];
+    }
+    return records.count>200?[records subarrayWithRange:NSMakeRange(records.count-200,200)]:records;
+}
+
+- (void)askAgent:(NSDictionary *)message {
+    NSString *identifier=[message[@"id"] isKindOfClass:NSString.class]?message[@"id"]:@"";
+    NSString *question=[message[@"question"] isKindOfClass:NSString.class]?[message[@"question"] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]:@"";
+    NSCharacterSet *allowed=[NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"];
+    if(self.chatBusy||!question.length||question.length>2000||!identifier.length||identifier.length>100||[identifier rangeOfCharacterFromSet:allowed.invertedSet].location!=NSNotFound) {
+        [self emit:@"agentError" data:@{@"id":identifier,@"message":self.chatBusy?@"请等待上一个问题完成":@"请输入 1–2000 字的问题"}];return;
+    }
+    NSString *key=[self apiKey];if(!key.length){[self emit:@"agentError" data:@{@"id":identifier,@"message":@"请先保存 DeepSeek API Key"}];return;}
+    NSArray *history=[self agentChatRecords];
+    NSString *prompt=[NSString stringWithContentsOfFile:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"chat-system-prompt.txt"] encoding:NSUTF8StringEncoding error:nil];
+    id context=[message[@"context"] isKindOfClass:NSDictionary.class]?message[@"context"]:NSNull.null;
+    NSData *contextData=[NSJSONSerialization dataWithJSONObject:context options:NSJSONWritingFragmentsAllowed error:nil];
+    if(!prompt.length||!contextData||contextData.length>128*1024){[self emit:@"agentError" data:@{@"id":identifier,@"message":@"提问配置缺失或上下文过大"}];return;}
+    NSMutableArray *messages=[NSMutableArray arrayWithObject:@{@"role":@"system",@"content":prompt}];
+    NSUInteger start=history.count>6?history.count-6:0;
+    for(NSUInteger i=start;i<history.count;i++) {
+        NSString *q=history[i][@"question"],*a=history[i][@"answer"];
+        [messages addObject:@{@"role":@"user",@"content":[q substringToIndex:MIN(q.length,2000)]}];
+        [messages addObject:@{@"role":@"assistant",@"content":[a substringToIndex:MIN(a.length,12000)]}];
+    }
+    NSData *userData=[NSJSONSerialization dataWithJSONObject:@{@"question":question,@"context":context} options:0 error:nil];
+    [messages addObject:@{@"role":@"user",@"content":[[NSString alloc] initWithData:userData encoding:NSUTF8StringEncoding]}];
+    NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://api.deepseek.com/chat/completions"]];request.HTTPMethod=@"POST";request.timeoutInterval=90;
+    [request setValue:[@"Bearer " stringByAppendingString:key] forHTTPHeaderField:@"Authorization"];
+    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    request.HTTPBody=[NSJSONSerialization dataWithJSONObject:@{@"model":@"deepseek-flash",@"messages":messages,@"max_tokens":@4000,@"thinking":@{@"type":@"disabled"},@"temperature":@0.55} options:0 error:nil];
+    self.chatBusy=YES;
+    [[self.session dataTaskWithRequest:request completionHandler:^(NSData *data,NSURLResponse *response,NSError *error){
+        self.chatBusy=NO;
+        id json=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:nil]:nil;
+        id choices=[json isKindOfClass:NSDictionary.class]?json[@"choices"]:nil;
+        id choice=[choices isKindOfClass:NSArray.class]&&[choices count]?choices[0]:nil;
+        id answer=[choice isKindOfClass:NSDictionary.class]&&[choice[@"message"] isKindOfClass:NSDictionary.class]?choice[@"message"][@"content"]:nil;
+        if(error||[(NSHTTPURLResponse *)response statusCode]!=200||![answer isKindOfClass:NSString.class]||![answer length]){
+            [self emit:@"agentError" data:@{@"id":identifier,@"message":error.localizedDescription?:@"DeepSeek 请求失败，请检查 Key、余额和网络"}];return;
+        }
+        NSDictionary *record=@{@"id":identifier,@"createdAt":@(NSDate.date.timeIntervalSince1970*1000),@"question":question,@"answer":answer,@"context":context,@"truncated":@([choice[@"finish_reason"] isEqual:@"length"])};
+        NSMutableArray *records=[history mutableCopy];[records addObject:record];if(records.count>200)[records removeObjectAtIndex:0];
+        NSError *saveError=nil;
+        if(![self writeJSON:records name:@"agent-chat.json" error:&saveError]){[self emit:@"agentError" data:@{@"id":identifier,@"message":saveError.localizedDescription?:@"回答生成成功但保存失败"}];return;}
+        NSMutableString *text=[NSMutableString stringWithString:@"# 小雪 Agent 对话\n\n"];
+        for(NSDictionary *item in records)[text appendFormat:@"## %@\n\n### 问题\n\n%@\n\n### 回答\n\n%@\n\n",[NSDate dateWithTimeIntervalSince1970:[item[@"createdAt"] doubleValue]/1000],item[@"question"],item[@"answer"]];
+        if(![text writeToFile:[[self tradeLogDirectory] stringByAppendingPathComponent:@"agent-chat.md"] atomically:YES encoding:NSUTF8StringEncoding error:&saveError]){
+            [self emit:@"agentError" data:@{@"id":identifier,@"message":@"对话已保存，但 tradelog 导出失败"}];return;
+        }
+        [self emit:@"agentAnswer" data:record];
+    }] resume];
 }
 
 - (BOOL)validSymbol:(NSString *)symbol {
@@ -292,6 +426,7 @@
     for (id symbol in [message[@"symbols"] isKindOfClass:NSArray.class] ? message[@"symbols"] : @[])
         if ([self validSymbol:symbol] && ![symbols containsObject:symbol]) [symbols addObject:symbol];
     if (!symbols.count) return;
+    [self startRiskStream:symbols];
     if (!self.contractsBusy && (!self.contractsFetchedAt || -self.contractsFetchedAt.timeIntervalSinceNow > 21600)) {
         self.contractsBusy = YES;
         [self requestJSON:[NSURL URLWithString:@"https://api.bitget.com/api/v2/mix/market/contracts?productType=USDT-FUTURES"] completion:^(id object, NSError *error) {
@@ -427,6 +562,59 @@
             [result addObject:@{ @"id": symbol, @"base": [symbol substringToIndex:symbol.length - 4] }];
         }
         [self emit:@"topSymbols" data:@{ @"source": source, @"pairs": result }];
+    }];
+}
+- (void)stopRiskStream {
+    self.riskGeneration++;
+    [self.riskStream cancelWithCloseCode:NSURLSessionWebSocketCloseCodeGoingAway reason:nil];
+    self.riskStream=nil;self.riskReconnecting=NO;
+}
+- (void)startRiskStream:(NSArray *)symbols {
+    if ([self.riskSubscriptions isEqualToArray:symbols] && (self.riskReconnecting || (self.riskStream && -self.riskActivity.timeIntervalSinceNow < 60))) return;
+    [self stopRiskStream];if(!symbols.count)return;
+    self.riskSubscriptions=[symbols copy];self.riskActivity=[NSDate date];
+    NSInteger generation=self.riskGeneration;
+    self.riskStream=[self.session webSocketTaskWithURL:[NSURL URLWithString:@"wss://ws.bitget.com/v2/ws/public"]];
+    [self.riskStream resume];
+    NSMutableArray *args=[NSMutableArray array];
+    for(NSString *symbol in symbols)[args addObject:@{@"instType":@"USDT-FUTURES",@"channel":@"ticker",@"instId":symbol}];
+    NSData *data=[NSJSONSerialization dataWithJSONObject:@{@"op":@"subscribe",@"args":args} options:0 error:nil];
+    [self.riskStream sendMessage:[[NSURLSessionWebSocketMessage alloc] initWithString:[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]] completionHandler:^(NSError *error) { (void)error; }];
+    [self pingRiskStream:generation];[self listenRiskStream:generation];
+}
+- (void)pingRiskStream:(NSInteger)generation {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,25*NSEC_PER_SEC),dispatch_get_main_queue(),^{
+        if(generation!=self.riskGeneration||!self.riskStream)return;
+        [self.riskStream sendMessage:[[NSURLSessionWebSocketMessage alloc] initWithString:@"ping"] completionHandler:^(NSError *error){(void)error;}];
+        [self pingRiskStream:generation];
+    });
+}
+- (void)listenRiskStream:(NSInteger)generation {
+    NSURLSessionWebSocketTask *stream=self.riskStream;
+    [stream receiveMessageWithCompletionHandler:^(NSURLSessionWebSocketMessage *message,NSError *error){
+        dispatch_async(dispatch_get_main_queue(),^{
+            if(generation!=self.riskGeneration)return;
+            if(error){
+                self.riskStream=nil;self.riskReconnecting=YES;
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW,3*NSEC_PER_SEC),dispatch_get_main_queue(),^{
+                    if(generation!=self.riskGeneration)return;
+                    self.riskReconnecting=NO;[self startRiskStream:self.riskSymbols];
+                });return;
+            }
+            self.riskActivity=[NSDate date];
+            NSData *data=message.type==NSURLSessionWebSocketMessageTypeString?[message.string dataUsingEncoding:NSUTF8StringEncoding]:message.data;
+            NSDictionary *payload=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:nil]:nil;
+            if([payload isKindOfClass:NSDictionary.class]){
+                NSDictionary *arg=payload[@"arg"];NSArray *rows=payload[@"data"];
+                if([arg isKindOfClass:NSDictionary.class] && [arg[@"channel"] isEqual:@"ticker"] && [self.riskSymbols containsObject:arg[@"instId"]] && [rows isKindOfClass:NSArray.class]){
+                    NSMutableArray *quotes=[NSMutableArray array];
+                    for(id row in rows)if([row isKindOfClass:NSDictionary.class] && [row[@"markPrice"] doubleValue]>0 && [row[@"lastPr"] doubleValue]>0)
+                        [quotes addObject:@{@"symbol":arg[@"instId"],@"mark":row[@"markPrice"],@"last":row[@"lastPr"],@"bid":row[@"bidPr"]?:@0,@"ask":row[@"askPr"]?:@0,@"time":row[@"ts"]?:payload[@"ts"]?:@0}];
+                    if(quotes.count)[self emit:@"contractRiskSnapshot" data:@{@"source":@"bitget",@"quotes":quotes}];
+                }
+            }
+            [self listenRiskStream:generation];
+        });
     }];
 }
 - (void)stopStream {
@@ -596,7 +784,7 @@
     if ([type isEqual:@"ready"]) {
         NSData *data = [NSData dataWithContentsOfFile:[[self dataDirectory] stringByAppendingPathComponent:@"state.json"]];
         id saved = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : @{};
-        [self emit:@"initialState" data:@{ @"state": saved ?: @{}, @"hasKey": @([self apiKey].length > 0), @"dataPath": [self dataDirectory], @"tradeLogPath": [self tradeLogDirectory], @"analyses": [self savedAnalyses] }];
+        [self emit:@"initialState" data:@{ @"state": saved ?: @{}, @"hasKey": @([self apiKey].length > 0), @"dataPath": [self dataDirectory], @"tradeLogPath": [self tradeLogDirectory], @"analyses": [self savedAnalyses], @"agentChat": [self agentChatRecords] }];
         [self scheduleLogExport];
     } else if ([type isEqual:@"fetchSeedTags"]) [self fetchSeedTags];
     else if ([type isEqual:@"openTradeLog"]) {
@@ -628,6 +816,7 @@
     } else if ([type isEqual:@"saveKey"]) [self saveKey:message[@"key"] ?: @""];
     else if ([type isEqual:@"fetchAnalysisContext"]) [self fetchAnalysisContext:message];
     else if ([type isEqual:@"analyze"]) [self analyze:message];
+    else if ([type isEqual:@"askAgent"]) [self askAgent:message];
 }
 @end
 
