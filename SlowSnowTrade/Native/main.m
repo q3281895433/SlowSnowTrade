@@ -58,6 +58,57 @@ static BOOL SSTInstallFromImage(void) {
     return YES;
 }
 
+@interface SSTAgentStream : NSObject <NSURLSessionDataDelegate>
+@property(nonatomic,strong) NSURLSession *session;
+@property(nonatomic,strong) NSURLSessionDataTask *task;
+@property(nonatomic,strong) NSMutableData *buffer;
+@property(nonatomic,strong) NSMutableArray *eventLines;
+@property(nonatomic,copy) void (^onDelta)(NSDictionary *);
+@property(nonatomic,copy) void (^onEnd)(NSError *);
+@property(nonatomic,strong) NSError *streamError;
+@property(nonatomic,assign) BOOL done;
+- (void)start:(NSURLRequest *)request;
+- (void)cancel;
+@end
+@implementation SSTAgentStream
+- (void)start:(NSURLRequest *)request {
+    self.buffer=[NSMutableData data];self.eventLines=[NSMutableArray array];
+    NSURLSessionConfiguration *config=NSURLSessionConfiguration.defaultSessionConfiguration;
+    config.timeoutIntervalForRequest=600;config.timeoutIntervalForResource=900;
+    self.session=[NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:NSOperationQueue.mainQueue];
+    self.task=[self.session dataTaskWithRequest:request];[self.task resume];
+}
+- (void)cancel { [self.task cancel]; }
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler {
+    NSInteger code=[(NSHTTPURLResponse *)response statusCode];
+    if(code!=200){self.streamError=[NSError errorWithDomain:@"SSTAgent" code:code userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"DeepSeek HTTP %ld，请检查 Key、余额或模型权限",(long)code]}];completionHandler(NSURLSessionResponseCancel);}
+    else completionHandler(NSURLSessionResponseAllow);
+}
+- (void)consumeEvent {
+    if(!self.eventLines.count)return;NSString *text=[self.eventLines componentsJoinedByString:@"\n"];[self.eventLines removeAllObjects];
+    if([text isEqual:@"[DONE]"]){self.done=YES;return;}
+    id object=[NSJSONSerialization JSONObjectWithData:[text dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+    if(![object isKindOfClass:NSDictionary.class]||object[@"error"]){self.streamError=[NSError errorWithDomain:@"SSTAgent" code:2 userInfo:@{NSLocalizedDescriptionKey:@"DeepSeek 流式响应格式错误"}];[self cancel];return;}
+    if(self.onDelta)self.onDelta(object);
+}
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveData:(NSData *)data {
+    [self.buffer appendData:data];NSData *newline=[@"\n" dataUsingEncoding:NSUTF8StringEncoding];
+    while(YES){NSRange range=[self.buffer rangeOfData:newline options:0 range:NSMakeRange(0,self.buffer.length)];if(range.location==NSNotFound)break;
+        NSData *row=[self.buffer subdataWithRange:NSMakeRange(0,range.location)];[self.buffer replaceBytesInRange:NSMakeRange(0,range.location+1) withBytes:NULL length:0];
+        NSString *line=[[NSString alloc] initWithData:row encoding:NSUTF8StringEncoding];if([line hasSuffix:@"\r"])line=[line substringToIndex:line.length-1];
+        if(!line.length)[self consumeEvent];else if([line hasPrefix:@"data:"])[self.eventLines addObject:[[line substringFromIndex:5] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet]];
+    }
+    if(self.buffer.length>8*1024*1024){self.streamError=[NSError errorWithDomain:@"SSTAgent" code:3 userInfo:@{NSLocalizedDescriptionKey:@"流式事件过大"}];[self cancel];}
+}
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
+    if(self.buffer.length){NSString *line=[[NSString alloc] initWithData:self.buffer encoding:NSUTF8StringEncoding];if([line hasPrefix:@"data:"])[self.eventLines addObject:[[line substringFromIndex:5] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]];}
+    [self consumeEvent];NSError *failure=self.streamError?:error;
+    if(!failure&&!self.done)failure=[NSError errorWithDomain:@"SSTAgent" code:4 userInfo:@{NSLocalizedDescriptionKey:@"流式连接提前结束；未完成的工具指令不会执行"}];
+    void (^end)(NSError *)=self.onEnd;self.onEnd=nil;self.onDelta=nil;[self.session finishTasksAndInvalidate];self.session=nil;self.task=nil;
+    if(end)end(failure);
+}
+@end
+
 @interface PaperTradeDelegate : NSObject <NSApplicationDelegate, WKScriptMessageHandler, WKNavigationDelegate>
 @property(nonatomic, strong) NSWindow *window;
 @property(nonatomic, strong) WKWebView *webView;
@@ -81,6 +132,9 @@ static BOOL SSTInstallFromImage(void) {
 @property(nonatomic, strong) NSMutableDictionary *sentRiskRules;
 @property(nonatomic, assign) BOOL logExportPending;
 @property(nonatomic, assign) BOOL chatBusy;
+@property(nonatomic,strong) SSTAgentStream *chatStream;
+@property(nonatomic,copy) NSString *chatID;
+@property(nonatomic,strong) NSMutableDictionary *analysisStreams;
 @end
 
 @implementation PaperTradeDelegate
@@ -161,7 +215,7 @@ static BOOL SSTInstallFromImage(void) {
     return YES;
 }
 
-- (void)applicationWillTerminate:(NSNotification *)notification { (void)notification; [self.riskTimer invalidate]; [self stopStream]; [self stopRiskStream]; }
+- (void)applicationWillTerminate:(NSNotification *)notification { (void)notification; [self.riskTimer invalidate]; [self stopStream]; [self stopRiskStream];[self.chatStream cancel];for(SSTAgentStream *stream in self.analysisStreams.allValues)[stream cancel]; }
 
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)action decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
     (void)webView;
@@ -338,51 +392,45 @@ static BOOL SSTInstallFromImage(void) {
 
 - (void)askAgent:(NSDictionary *)message {
     NSString *identifier=[message[@"id"] isKindOfClass:NSString.class]?message[@"id"]:@"";
-    NSString *question=[message[@"question"] isKindOfClass:NSString.class]?[message[@"question"] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]:@"";
-    NSCharacterSet *allowed=[NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"];
-    if(self.chatBusy||!question.length||question.length>2000||!identifier.length||identifier.length>100||[identifier rangeOfCharacterFromSet:allowed.invertedSet].location!=NSNotFound) {
-        [self emit:@"agentError" data:@{@"id":identifier,@"message":self.chatBusy?@"请等待上一个问题完成":@"请输入 1–2000 字的问题"}];return;
-    }
-    NSString *key=[self apiKey];if(!key.length){[self emit:@"agentError" data:@{@"id":identifier,@"message":@"请先保存 DeepSeek API Key"}];return;}
-    NSArray *history=[self agentChatRecords];
-    NSString *prompt=[NSString stringWithContentsOfFile:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"chat-system-prompt.txt"] encoding:NSUTF8StringEncoding error:nil];
-    id context=[message[@"context"] isKindOfClass:NSDictionary.class]?message[@"context"]:NSNull.null;
-    NSData *contextData=[NSJSONSerialization dataWithJSONObject:context options:NSJSONWritingFragmentsAllowed error:nil];
-    if(!prompt.length||!contextData||contextData.length>128*1024){[self emit:@"agentError" data:@{@"id":identifier,@"message":@"提问配置缺失或上下文过大"}];return;}
+    NSString *question=[message[@"question"] isKindOfClass:NSString.class]?message[@"question"]:@"";
+    NSArray *input=[message[@"messages"] isKindOfClass:NSArray.class]?message[@"messages"]:nil;
+    NSArray *tools=[message[@"tools"] isKindOfClass:NSArray.class]?message[@"tools"]:nil;
+    NSData *size=input?[NSJSONSerialization dataWithJSONObject:input options:0 error:nil]:nil;
+    if(self.chatBusy||!identifier.length||identifier.length>100||!question.length||question.length>2000||!size||size.length>8*1024*1024||!tools||tools.count>12){[self emit:@"agentError" data:@{@"id":identifier,@"round":message[@"round"]?:@0,@"message":@"Agent 请求格式错误、上下文过大或正在忙"}];return;}
+    NSString *key=[self apiKey],*prompt=[NSString stringWithContentsOfFile:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"chat-system-prompt.txt"] encoding:NSUTF8StringEncoding error:nil];
+    if(!key.length||!prompt.length){[self emit:@"agentError" data:@{@"id":identifier,@"round":message[@"round"]?:@0,@"message":@"请先保存 API Key，并确认 Agent 配置存在"}];return;}
     NSMutableArray *messages=[NSMutableArray arrayWithObject:@{@"role":@"system",@"content":prompt}];
-    NSUInteger start=history.count>6?history.count-6:0;
-    for(NSUInteger i=start;i<history.count;i++) {
-        NSString *q=history[i][@"question"],*a=history[i][@"answer"];
-        [messages addObject:@{@"role":@"user",@"content":[q substringToIndex:MIN(q.length,2000)]}];
-        [messages addObject:@{@"role":@"assistant",@"content":[a substringToIndex:MIN(a.length,12000)]}];
+    for(id item in input)if([item isKindOfClass:NSDictionary.class]&&[@[@"user",@"assistant",@"tool"] containsObject:item[@"role"]])[messages addObject:item];
+    NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://api.deepseek.com/chat/completions"]];request.HTTPMethod=@"POST";request.timeoutInterval=600;
+    [request setValue:[@"Bearer " stringByAppendingString:key] forHTTPHeaderField:@"Authorization"];[request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    request.HTTPBody=[NSJSONSerialization dataWithJSONObject:@{@"model":@"deepseek-v4-pro",@"messages":messages,@"tools":tools,@"thinking":@{@"type":@"enabled"},@"reasoning_effort":@"max",@"stream":@YES} options:0 error:nil];
+    self.chatBusy=YES;self.chatID=identifier;SSTAgentStream *stream=[SSTAgentStream new];self.chatStream=stream;
+    __weak PaperTradeDelegate *owner=self;
+    stream.onDelta=^(NSDictionary *chunk){[owner emit:@"agentDelta" data:@{@"id":identifier,@"round":message[@"round"]?:@0,@"chunk":chunk}];};
+    stream.onEnd=^(NSError *error){PaperTradeDelegate *strong=owner;strong.chatBusy=NO;strong.chatStream=nil;
+        [strong emit:error?@"agentError":@"agentStreamEnd" data:@{@"id":identifier,@"round":message[@"round"]?:@0,@"message":error.localizedDescription?:@""}];};
+    [stream start:request];
+}
+- (void)saveAgentConversation:(NSDictionary *)message {
+    NSDictionary *record=[message[@"record"] isKindOfClass:NSDictionary.class]?message[@"record"]:nil;
+    NSData *size=record?[NSJSONSerialization dataWithJSONObject:record options:0 error:nil]:nil;
+    NSString *identifier=[record[@"id"] isKindOfClass:NSString.class]?record[@"id"]:@"";
+    if(!identifier.length||![record[@"question"] isKindOfClass:NSString.class]||![record[@"answer"] isKindOfClass:NSString.class]||!size||size.length>2*1024*1024){[self emit:@"agentSaveError" data:@{@"id":identifier,@"message":@"对话记录格式错误或过大"}];return;}
+    NSMutableArray *records=[[self agentChatRecords] mutableCopy];NSIndexSet *old=[records indexesOfObjectsPassingTest:^BOOL(NSDictionary *row,NSUInteger i,BOOL *stop){return[row[@"id"] isEqual:identifier];}];[records removeObjectsAtIndexes:old];[records addObject:record];if(records.count>200)[records removeObjectAtIndex:0];
+    NSError *error=nil;if(![self writeJSON:records name:@"agent-chat.json" error:&error]){[self emit:@"agentSaveError" data:@{@"id":identifier,@"message":error.localizedDescription?:@"对话保存失败"}];return;}
+    NSMutableString *text=[NSMutableString stringWithString:@"# 小雪 Agent 对话\n\n"];
+    for(NSDictionary *item in records){NSData *tools=[NSJSONSerialization dataWithJSONObject:item[@"tools"]?:@[] options:NSJSONWritingPrettyPrinted error:nil];[text appendFormat:@"## %@\n\n### 问题\n\n%@\n\n### 回答\n\n%@\n\n### 工具执行\n\n%@\n\n",[NSDate dateWithTimeIntervalSince1970:([item[@"createdAt"] doubleValue]>1e12?[item[@"createdAt"] doubleValue]/1000:[item[@"createdAt"] doubleValue])],item[@"question"],item[@"answer"],[[NSString alloc] initWithData:tools encoding:NSUTF8StringEncoding]];}
+    if(![text writeToFile:[[self tradeLogDirectory] stringByAppendingPathComponent:@"agent-chat.md"] atomically:YES encoding:NSUTF8StringEncoding error:&error]){[self emit:@"agentSaveError" data:@{@"id":identifier,@"message":@"对话已保存，但 tradelog 导出失败"}];return;}
+    [self emit:@"agentAnswer" data:record];
+}
+- (void)agentReadTraining:(NSDictionary *)message {
+    NSInteger limit=MAX(1,MIN(30,[message[@"limit"] integerValue]?:8));NSMutableArray *samples=[NSMutableArray array];
+    NSFileHandle *file=[NSFileHandle fileHandleForReadingAtPath:[[self dataDirectory] stringByAppendingPathComponent:@"training-data.jsonl"]];
+    if(file){unsigned long long length=[file seekToEndOfFile],size=MIN(length,256*1024);[file seekToFileOffset:length-size];NSData *tail=[file readDataOfLength:(NSUInteger)size];[file closeFile];if(length>size){NSRange newline=[tail rangeOfData:[@"\n" dataUsingEncoding:NSUTF8StringEncoding] options:0 range:NSMakeRange(0,tail.length)];tail=newline.location==NSNotFound?[NSData data]:[tail subdataWithRange:NSMakeRange(newline.location+1,tail.length-newline.location-1)];}NSString *text=[[NSString alloc] initWithData:tail encoding:NSUTF8StringEncoding];NSMutableArray *lines=[[text componentsSeparatedByString:@"\n"] mutableCopy]?:[NSMutableArray array];
+        for(NSString *line in lines)if(line.length){id row=[NSJSONSerialization JSONObjectWithData:[line dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];if([row isKindOfClass:NSDictionary.class])[samples addObject:row];}
     }
-    NSData *userData=[NSJSONSerialization dataWithJSONObject:@{@"question":question,@"context":context} options:0 error:nil];
-    [messages addObject:@{@"role":@"user",@"content":[[NSString alloc] initWithData:userData encoding:NSUTF8StringEncoding]}];
-    NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://api.deepseek.com/chat/completions"]];request.HTTPMethod=@"POST";request.timeoutInterval=90;
-    [request setValue:[@"Bearer " stringByAppendingString:key] forHTTPHeaderField:@"Authorization"];
-    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    request.HTTPBody=[NSJSONSerialization dataWithJSONObject:@{@"model":@"deepseek-flash",@"messages":messages,@"max_tokens":@4000,@"thinking":@{@"type":@"disabled"},@"temperature":@0.55} options:0 error:nil];
-    self.chatBusy=YES;
-    [[self.session dataTaskWithRequest:request completionHandler:^(NSData *data,NSURLResponse *response,NSError *error){
-        self.chatBusy=NO;
-        id json=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:nil]:nil;
-        id choices=[json isKindOfClass:NSDictionary.class]?json[@"choices"]:nil;
-        id choice=[choices isKindOfClass:NSArray.class]&&[choices count]?choices[0]:nil;
-        id answer=[choice isKindOfClass:NSDictionary.class]&&[choice[@"message"] isKindOfClass:NSDictionary.class]?choice[@"message"][@"content"]:nil;
-        if(error||[(NSHTTPURLResponse *)response statusCode]!=200||![answer isKindOfClass:NSString.class]||![answer length]){
-            [self emit:@"agentError" data:@{@"id":identifier,@"message":error.localizedDescription?:@"DeepSeek 请求失败，请检查 Key、余额和网络"}];return;
-        }
-        NSDictionary *record=@{@"id":identifier,@"createdAt":@(NSDate.date.timeIntervalSince1970*1000),@"question":question,@"answer":answer,@"context":context,@"truncated":@([choice[@"finish_reason"] isEqual:@"length"])};
-        NSMutableArray *records=[history mutableCopy];[records addObject:record];if(records.count>200)[records removeObjectAtIndex:0];
-        NSError *saveError=nil;
-        if(![self writeJSON:records name:@"agent-chat.json" error:&saveError]){[self emit:@"agentError" data:@{@"id":identifier,@"message":saveError.localizedDescription?:@"回答生成成功但保存失败"}];return;}
-        NSMutableString *text=[NSMutableString stringWithString:@"# 小雪 Agent 对话\n\n"];
-        for(NSDictionary *item in records)[text appendFormat:@"## %@\n\n### 问题\n\n%@\n\n### 回答\n\n%@\n\n",[NSDate dateWithTimeIntervalSince1970:[item[@"createdAt"] doubleValue]/1000],item[@"question"],item[@"answer"]];
-        if(![text writeToFile:[[self tradeLogDirectory] stringByAppendingPathComponent:@"agent-chat.md"] atomically:YES encoding:NSUTF8StringEncoding error:&saveError]){
-            [self emit:@"agentError" data:@{@"id":identifier,@"message":@"对话已保存，但 tradelog 导出失败"}];return;
-        }
-        [self emit:@"agentAnswer" data:record];
-    }] resume];
+    if(samples.count>(NSUInteger)limit)samples=[[samples subarrayWithRange:NSMakeRange(samples.count-limit,limit)] mutableCopy];
+    [self emit:@"agentTrainingData" data:@{@"id":message[@"id"]?:@"",@"callId":message[@"callId"]?:@"",@"samples":samples}];
 }
 
 - (BOOL)validSymbol:(NSString *)symbol {
@@ -731,50 +779,35 @@ static BOOL SSTInstallFromImage(void) {
 }
 
 - (void)analyze:(NSDictionary *)message {
-    NSDictionary *trade = [message[@"trade"] isKindOfClass:NSDictionary.class] ? message[@"trade"] : nil;
-    NSString *key = [self apiKey];
-    if (!key.length || !trade) {
-        [self emit:@"analysisError" data:@{ @"id": trade[@"id"] ?: @"", @"message": @"请先在 Agent 面板保存 DeepSeek API Key" }];
-        return;
-    }
-    NSDictionary *sample = [message[@"sample"] isKindOfClass:NSDictionary.class] ? message[@"sample"] : @{ @"trade": trade, @"market": message[@"market"] ?: @[] };
-    NSData *sampleData = [NSJSONSerialization dataWithJSONObject:sample options:0 error:nil];
-    NSString *prompt = [[NSString alloc] initWithData:sampleData encoding:NSUTF8StringEncoding];
-    NSString *systemPath = [[[NSBundle mainBundle] resourcePath] stringByAppendingPathComponent:@"review-system-prompt.txt"];
-    NSString *systemPrompt = [NSString stringWithContentsOfFile:systemPath encoding:NSUTF8StringEncoding error:nil];
-    if (!systemPrompt.length || !prompt.length) { [self emit:@"analysisError" data:@{ @"id": trade[@"id"] ?: @"", @"message": @"复盘配置或数据缺失，请重新构建 App" }]; return; }
-    NSDictionary *body = @{ @"model": @"deepseek-flash", @"max_tokens": @6000, @"thinking": @{ @"type": @"disabled" }, @"temperature": @0.55,
-      @"messages": @[@{ @"role": @"system", @"content": systemPrompt }, @{ @"role": @"user", @"content": prompt }] };
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://api.deepseek.com/chat/completions"]];
-    request.HTTPMethod = @"POST";
-    request.timeoutInterval = 90;
-    [request setValue:[NSString stringWithFormat:@"Bearer %@", key] forHTTPHeaderField:@"Authorization"];
-    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    request.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
-    [[self.session dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-        NSArray *choices = [json isKindOfClass:NSDictionary.class] ? json[@"choices"] : nil;
-        NSDictionary *first = [choices isKindOfClass:NSArray.class] && choices.count ? choices[0] : nil;
-        NSString *content = first[@"message"][@"content"];
-        if (error || [(NSHTTPURLResponse *)response statusCode] != 200 || ![content isKindOfClass:NSString.class] || ![content stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length) {
-            [self emit:@"analysisError" data:@{ @"id": trade[@"id"] ?: @"", @"message": error.localizedDescription ?: @"DeepSeek 请求失败，请检查 Key 和网络" }];
-            return;
-        }
-        NSDictionary *record = @{ @"id": trade[@"id"] ?: @"", @"createdAt": @([[NSDate date] timeIntervalSince1970]), @"analysis": content, @"trade": trade,
-            @"promptVersion": @2, @"model": @"deepseek-flash", @"sample": sample, @"truncated": @([first[@"finish_reason"] isEqual:@"length"]) };
-        NSString *filename = [NSString stringWithFormat:@"analysis-%@.json", trade[@"id"] ?: @"trade"];
-        NSString *existing = [[self dataDirectory] stringByAppendingPathComponent:filename];
-        if ([[NSFileManager defaultManager] fileExistsAtPath:existing]) {
-            NSString *archive = [[self dataDirectory] stringByAppendingPathComponent:@"analysis-history"];
-            [[NSFileManager defaultManager] createDirectoryAtPath:archive withIntermediateDirectories:YES attributes:nil error:nil];
-            NSString *archivedName = [NSString stringWithFormat:@"%.0f-%@", [[NSDate date] timeIntervalSince1970]*1000, filename.lastPathComponent];
-            [[NSFileManager defaultManager] copyItemAtPath:existing toPath:[archive stringByAppendingPathComponent:archivedName] error:nil];
-        }
-        NSError *saveError = nil;
-        if (![self writeJSON:record name:filename error:&saveError]) { [self emit:@"analysisError" data:@{ @"id": trade[@"id"] ?: @"", @"message": saveError.localizedDescription ?: @"复盘生成成功但保存失败" }]; return; }
-        [self appendRecord:@{ @"type": @"analysis", @"data": record }];
-        [self emit:@"analysis" data:record];
-    }] resume];
+    NSDictionary *trade=[message[@"trade"] isKindOfClass:NSDictionary.class]?message[@"trade"]:nil;
+    NSString *identifier=[trade[@"id"] isKindOfClass:NSString.class]?trade[@"id"]:@"",*key=[self apiKey];
+    NSRegularExpression *idPattern=[NSRegularExpression regularExpressionWithPattern:@"^[A-Za-z0-9_-]{1,100}$" options:0 error:nil];
+    if(!key.length||![idPattern numberOfMatchesInString:identifier options:0 range:NSMakeRange(0,identifier.length)]){[self emit:@"analysisError" data:@{@"id":identifier,@"message":@"请先保存 API Key，并选择有效账单"}];return;}
+    if(!self.analysisStreams)self.analysisStreams=[NSMutableDictionary dictionary];
+    if(self.analysisStreams[identifier]||self.analysisStreams.count>=2){[self emit:@"analysisError" data:@{@"id":identifier,@"message":@"已有复盘正在生成，请完成后重试"}];return;}
+    NSDictionary *sample=[message[@"sample"] isKindOfClass:NSDictionary.class]?message[@"sample"]:@{@"trade":trade,@"market":message[@"market"]?:@[]};
+    NSString *prompt=[[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:sample options:0 error:nil] encoding:NSUTF8StringEncoding];
+    NSString *systemPrompt=[NSString stringWithContentsOfFile:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"review-system-prompt.txt"] encoding:NSUTF8StringEncoding error:nil];
+    if(!systemPrompt.length||!prompt.length){[self emit:@"analysisError" data:@{@"id":identifier,@"message":@"复盘配置或数据缺失"}];return;}
+    NSDictionary *body=@{@"model":@"deepseek-v4-pro",@"thinking":@{@"type":@"enabled"},@"reasoning_effort":@"max",@"stream":@YES,@"messages":@[@{@"role":@"system",@"content":systemPrompt},@{@"role":@"user",@"content":prompt}]};
+    NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://api.deepseek.com/chat/completions"]];request.HTTPMethod=@"POST";request.timeoutInterval=600;
+    [request setValue:[NSString stringWithFormat:@"Bearer %@",key] forHTTPHeaderField:@"Authorization"];[request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    request.HTTPBody=[NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+    SSTAgentStream *stream=[SSTAgentStream new];self.analysisStreams[identifier]=stream;
+    NSMutableString *content=[NSMutableString string];__block NSString *finish=nil;__weak PaperTradeDelegate *owner=self;
+    stream.onDelta=^(NSDictionary *chunk){NSDictionary *choice=[chunk[@"choices"] isKindOfClass:NSArray.class]&&[chunk[@"choices"] count]?chunk[@"choices"][0]:nil;
+        NSString *text=choice[@"delta"][@"content"];if([text isKindOfClass:NSString.class]&&text.length){[content appendString:text];[owner emit:@"analysisDelta" data:@{@"id":identifier,@"text":text}];}
+        if([choice[@"finish_reason"] isKindOfClass:NSString.class])finish=choice[@"finish_reason"];
+    };
+    stream.onEnd=^(NSError *error){PaperTradeDelegate *strong=owner;if(!strong)return;[strong.analysisStreams removeObjectForKey:identifier];
+        if(error||!content.length||!finish.length){[strong emit:@"analysisError" data:@{@"id":identifier,@"message":error.localizedDescription?:@"复盘输出未完成，请重试"}];return;}
+        NSDictionary *record=@{@"id":identifier,@"createdAt":@([[NSDate date] timeIntervalSince1970]),@"analysis":[content copy],@"trade":trade,@"promptVersion":@3,@"model":@"deepseek-v4-pro",@"reasoningEffort":@"max",@"sample":sample,@"truncated":@([finish isEqual:@"length"])};
+        NSString *filename=[NSString stringWithFormat:@"analysis-%@.json",identifier],*existing=[[strong dataDirectory] stringByAppendingPathComponent:filename];
+        if([[NSFileManager defaultManager] fileExistsAtPath:existing]){NSString *archive=[[strong dataDirectory] stringByAppendingPathComponent:@"analysis-history"];[[NSFileManager defaultManager] createDirectoryAtPath:archive withIntermediateDirectories:YES attributes:nil error:nil];[[NSFileManager defaultManager] copyItemAtPath:existing toPath:[archive stringByAppendingPathComponent:[NSString stringWithFormat:@"%.0f-%@",NSDate.date.timeIntervalSince1970*1000,filename]] error:nil];}
+        NSError *saveError=nil;if(![strong writeJSON:record name:filename error:&saveError]){[strong emit:@"analysisError" data:@{@"id":identifier,@"message":saveError.localizedDescription?:@"复盘保存失败"}];return;}
+        [strong appendRecord:@{@"type":@"analysis",@"data":record}];[strong emit:@"analysis" data:record];
+    };
+    [stream start:request];
 }
 
 - (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)scriptMessage {
@@ -817,6 +850,9 @@ static BOOL SSTInstallFromImage(void) {
     else if ([type isEqual:@"fetchAnalysisContext"]) [self fetchAnalysisContext:message];
     else if ([type isEqual:@"analyze"]) [self analyze:message];
     else if ([type isEqual:@"askAgent"]) [self askAgent:message];
+    else if ([type isEqual:@"cancelAgent"]) {if([message[@"id"] isEqual:self.chatID])[self.chatStream cancel];}
+    else if ([type isEqual:@"saveAgentConversation"]) [self saveAgentConversation:message];
+    else if ([type isEqual:@"agentReadTraining"]) [self agentReadTraining:message];
 }
 @end
 
