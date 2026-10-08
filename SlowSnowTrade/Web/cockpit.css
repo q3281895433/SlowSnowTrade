@@ -106,3 +106,9 @@ button:active:not(:disabled){filter:brightness(.88)}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 ::-webkit-scrollbar-thumb{background:#ffffff26}::-webkit-scrollbar-track{background:transparent}
 ::selection{background:#bde9d24d;color:white}
+
+.agent-stream-text{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7}
+.agent-execution-controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;font-size:calc(11px * var(--font-scale));color:var(--muted)}
+.agent-execution-controls label{display:flex;align-items:center;gap:5px;color:var(--text)}
+.agent-execution-controls button{margin-left:auto;border:1px solid #cf6078;border-radius:7px;padding:4px 10px;background:#2b1520;color:#ffafb9}
+.agent-execution-controls [hidden]{display:none}

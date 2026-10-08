@@ -183,7 +183,7 @@
     let reserved=0;
     if(!closing){const preview=open({...account,cash:account.cash,positions:[]},{...options,qty,price:limit,orderType:type});reserved=preview.margin+preview.openFee;}
     const order={id:crypto.randomUUID(),symbol:closing?p.symbol:options.symbol,side,qty,price:limit,leverage:closing?p.leverage:options.leverage,riskModel:model,positionId:p?.id||null,
-      reduceOnly:closing,orderType:type,reserved,status:'pending',createdAt:Date.now()};
+      reduceOnly:closing,orderType:type,reserved,stopLoss:closing?null:validLevel(options.stopLoss,side,limit,'stop'),takeProfit:closing?null:validLevel(options.takeProfit,side,limit,'take'),status:'pending',createdAt:Date.now()};
     account.cash-=reserved;(account.orders??=[]).unshift(order);return {kind:'pending',order};
   }
   function cancelOrder(account,id,reason='已撤销') {

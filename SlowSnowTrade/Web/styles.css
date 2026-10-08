@@ -275,3 +275,5 @@ button:disabled{opacity:.4;cursor:default}.order-field input:disabled{color:var(
 .custom-ma-form #customMAMessage{color:var(--accent)}
 .custom-ma-form #customMAMessage.error{color:#ff8798}
 .study-picker summary:focus-visible,.study-options :is(input,button):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.order-amount-note{margin:5px 0 9px;color:var(--muted);font-size:calc(.68rem * var(--font-scale));line-height:1.5;overflow-wrap:anywhere}
