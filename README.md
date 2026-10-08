@@ -2,6 +2,13 @@
 
 适用于 Intel Mac、Apple Silicon Mac 和 Windows 的本地加密货币交易练习工作台。三个平台共用图表、交易账本和 Agent 界面。Mac 使用 Clang、Cocoa 和 WebKit，不需要完整 Xcode 或 App Store；最低 macOS 13。Windows 使用 Electron，支持 Windows 10/11 x64。
 
+## 开源与下载
+
+本项目以 [MIT License](LICENSE) 开源，允许使用、修改、分发和商业使用，分发时保留许可证与版权声明。第三方依赖和外部图标遵循各自许可证。
+
+- [GitHub 源码](https://github.com/q3281895433/SlowSnowTrade)
+- [1.8.0 安装包](https://github.com/q3281895433/SlowSnowTrade/releases/tag/v1.8.0)：Intel Mac、Apple Silicon Mac、Mac 通用版及 Windows x64。
+
 ## 构建与打开
 
 ```sh
@@ -14,7 +21,7 @@ open build/SlowSnowTrade.app
 
 现成安装包统一整理在桌面 `安装包/SlowSnowTrade/`，Mac 与 Windows 分目录保存；本项目 `release/` 为构建临时输出目录。Mac 安装：打开对应 `.dmg`，把带小雪人图标的 SlowSnowTrade 拖入 Applications。通用版包含 Intel 与 arm64 两种架构，可用于两种 Mac。编译只需要 Apple Command Line Tools。请从 Applications 中启动；右键程序坞图标，选择“选项 → 在程序坞中保留”。不要把临时 DMG 内的 App 路径固定到程序坞。
 
-Windows 下载 `SlowSnowTrade-1.7.1-Windows-x64-Setup.exe`，安装向导可选择目录，并创建桌面和开始菜单快捷方式；在系统“已安装的应用”中可卸载。交易、图表设置和复盘数据在卸载后保留。
+Windows 下载 `SlowSnowTrade-1.8.0-Windows-x64-Setup.exe`，安装向导可选择目录，并创建桌面和开始菜单快捷方式；在系统“已安装的应用”中可卸载。交易、图表设置和复盘数据在卸载后保留。
 
 本项目暂未配置 Apple Developer ID、公证或 Windows 商业代码签名证书。Mac 首次打开可能需要在“隐私与安全性”确认，Windows 可能显示 SmartScreen 提示；不要全局关闭系统防护。
 
@@ -53,7 +60,7 @@ GitHub Actions 的 **Desktop installers** 工作流会在 Windows runner 上生�
 - 历史和训练样本记录强平触发标记价、当时权益、维持保证金、档位、减仓或接管清算结果；启用自动复盘时交给 DeepSeek 分析。
 - **策略复盘 Agent：**复盘输出核心判断、入场/持仓/退出诊断、3 条具体改进建议、当前技术动向、2 个条件式策略、2 种参考交易方法，以及下次交易清单和量化研究假设。建议包含判断依据、下一步操作和衡量方式；策略包含确认信号、入场、止损、止盈、失效及观望条件。
 - Agent 读取对应币种开仓前/平仓时的 Bitget U 本位合约 K 线、当前分析周期/1 小时/4 小时 K 线及 BTC 1 小时背景，计算 MA20/50/100、EMA、MACD、RSI、ATR、BOLL、相对成交量和候选区间。开仓复盘仅使用当时已收盘 K 线，当前行情分开分析，缺少数据时要求说明缺口。价格与成交量动向不包含新闻或链上资金流。长持仓超出单页历史覆盖时，不声称完整盘中路径或精确回测。
-- 输出上限扩至 6000 tokens、请求超时 90 秒；在已知支持的非思考模式下直接生成可读报告，缺失/截断输出会在界面提示。提供“重新生成所选复盘”，旧版本同步归档到 `tradelog/analysis-history/`，原始指标、行情样本及模型/提示词版本与新报告一起保存，供后续量化研究。请求会调用用户配置的 DeepSeek API；不会在升级时批量重生成历史复盘。
+- 1.8.0 起使用 DeepSeek Pro 最高思考与流式输出，整体请求最长 15 分钟；输出长度使用模型默认上限，缺失/截断输出会在界面提示。提供“重新生成所选复盘”，旧版本同步归档到 `tradelog/analysis-history/`，原始指标、行情样本及模型/提示词版本与新报告一起保存，供后续量化研究。请求会调用用户配置的 DeepSeek API；不会在升级时批量重生成历史复盘。
 - Williams Fractals 可在“主图曲线”中勾选，与均线共存。采用严格五根结构，中间最高/最低价必须严格高于/低于左右各两根；右侧两根已收盘后才在中心 K 线上绘制小三角，不显示未确认候选。定义参考 [TradingView Williams Fractal](https://www.tradingview.com/support/solutions/43000591663-williams-fractal-indicator/)。
 - 主图价格范围在最高、最低价外各增加 20% 波动幅度的留白，让蜡烛与买卖标签离上下边缘更远。
 - **买卖路标：**买入采用绿色 B 标签，放在 K 线下方并向上指；卖出采用红色 S 标签，放在上方并向下指。图中仅显示固定 18 像素的 B / S 小标签；开多/开空/平多/平空/减仓/强平、笔数、时间、成交价和数量在悬停时显示。邻近同方向成交汇总，避免重叠；分批平仓只保留一条原始开仓标记。手动买卖点采用虚线边框。
@@ -84,7 +91,7 @@ Mac 程序坞操作参考：[Apple 程序坞说明](https://support.apple.com/en
 
 从 DMG 或 App Translocation 启动会提供“安装并打开”，把 App 复制到 `/Applications`（无写入权限时使用 `~/Applications`）、固定程序坞并启动安装副本。应用菜单也有“固定到程序坞”。保持原有 bundle ID 与钥匙串服务，账户与密钥继续沿用。
 
-Key 保存成功后收成“API 已配置 / 更换”小框；不会在界面、源码或对话日志展示真实密钥。顶部“问 Agent”或 Agent 内“提问”页可多轮问答，支持 Enter 发送、Shift+Enter 换行；可选择是否附带当前现货图表、确认分形、当前币种持仓与有效合约报价。助手只提供分析，不执行订单。请求遵循 [DeepSeek Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/)。
+Key 保存成功后收成“API 已配置 / 更换”小框；不会在界面、源码或对话日志展示真实密钥。顶部“问 Agent”或 Agent 内“提问”页可多轮问答，支持 Enter 发送、Shift+Enter 换行；可选择是否附带当前现货图表、确认分形、当前币种持仓与有效合约报价。1.7.0 版本助手只提供分析；1.8.0 起接入本地模拟账户执行工具。请求遵循 [DeepSeek Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/)。
 
 对话保存至桌面 `deepseek/SlowSnowTrade/agent-chat.json`，同步导出到 `VScode/SlowSnowTrade/tradelog/agent-chat.md`；保留最近 200 轮，本次提问使用最近 6 轮上下文。交易复盘仍在“交易复盘”页。只有用户发送问题才调用问答 API；此改动的开发过程中没有读取密钥或发起付费 Agent 请求。
 
@@ -94,3 +101,18 @@ Key 保存成功后收成“API 已配置 / 更换”小框；不会在界面、
 - 未绑定持仓的区间完成后询问是否市价开仓；取消只保留标注。确认时校验实时成交价、数量、杠杆与两个保护价，成功开仓后同时绑定。
 - 绘图区间时滚轮同时缩放时间与价格，Shift + 滚轮只缩放价格，已确认的价位和端点保持不变。
 - 止盈止损按 Bitget 合约最新成交价触发并以当时盘口成交；现货图表影线可能不同。应用关闭或行情断线期间无法持续执行，重连后按最新有效报价检查。
+
+## 1.7.2 USDT 成交额输入
+
+下单区和区间开仓确认都可直接输入 USDT 成交额，按委托价或对应方向的实时盘口换算币数，并按合约数量精度向下取整。也可输入币数量，自动显示对应 USDT 金额。保证金按成交额除以杠杆计算，手续费另计。
+
+待成交限价按输入价格换算；市价及可即时成交的限价单提交时按最新买卖盘口重新换算。USDT 金额输入期间保持目标金额，报价变化时仅更新预计币数。切换币种、持仓或开平仓模式会清空本次输入。
+
+## 1.8.0 模拟交易 Agent
+
+- 提问和复盘均使用 `deepseek-v4-pro`、`thinking.enabled`、`reasoning_effort=max` 与 SSE 流式输出。思考阶段显示状态，回答逐段出现；工具续接保留模型要求的 reasoning_content。参数依据 [DeepSeek 官方文档](https://api-docs.deepseek.com/api/create-chat-completion/)。最高思考可能比普通分析耗时更长。
+- Agent 可读取账户、公开 Bitget 合约行情（当前周期、1h、4h 与 BTC 背景）、已平仓记录和本地训练样本；可实际在本地模拟器开仓、限价委托、平仓、减仓、撤单、修改止盈止损、调整保证金。只设置止盈止损不会无持仓开仓。没有真实交易所下单接口。
+- 勾选“允许执行模拟交易”后，必须在本轮明确发出执行请求；咨询类提问只开放读取工具。“停止”取消模型请求并阻止后续账户操作，已执行的成交不会回滚。断流或不完整工具指令不执行；同轮重复变更拦截，最多8轮工具交互、6项账户变更。
+- 例如：“用成交额10USDT，在当前币种开多，杠杆5倍。”也可指定限价、止盈止损；仅说10U默认成交额，明确说保证金才按保证金换算。真实模拟成交数量按合约精度向下取整，不会擅自扩大预算。
+- 工具请求和结果存入 `training-data.jsonl`；对话与工具摘要存入 `agent-chat.json`，导出到桌面 `VScode/SlowSnowTrade/tradelog/agent-chat.md`。读取样本用于本轮研究，不代表已训练或回测量化模型。
+- 需要有效 DeepSeek Key、余额与模型访问权限；行情和模型服务需联网。应用打开且行情正常时检查保护价与强平，不提供后台常驻或离线撮合。
