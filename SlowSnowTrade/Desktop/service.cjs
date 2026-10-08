@@ -1,6 +1,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const WebSocket = require('ws');
+const SSEParser=require('./sse.cjs');
 const SYMBOL = /^[A-Z0-9]{1,25}USDT$/;
 const ID = /^[A-Za-z0-9_-]{1,100}$/;
 const intervals = { '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m', '1h': '1H', '4h': '4H', '6h': '6H', '12h': '12H', '1d': '1D', '2d': '1D', '1w': '1D' };
@@ -298,55 +299,58 @@ class DesktopService {
     this.emit('analysisContext', { requestId: message.requestId, tradeId: trade.id || '', datasets });
   }
   async analyze(message) {
-    const trade = message.trade;
-    if (!trade || !ID.test(trade.id)) throw new Error('账单编号无效');
-    const key = await this.key(); if (!key) throw new Error('请先在 Agent 面板保存 DeepSeek API Key');
-    const sample = message.sample || { trade, market: message.market || [] };
-    const prompt = await fs.readFile(this.promptPath, 'utf8');
-    const json = await this.request('https://api.deepseek.com/chat/completions', {
-      method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'deepseek-flash', max_tokens: 6000, thinking: { type: 'disabled' }, temperature: 0.55, messages: [{ role: 'system', content: prompt }, { role: 'user', content: JSON.stringify(sample) }] })
-    }, 90000);
-    const choice = json.choices?.[0], content = choice?.message?.content;
-    if (typeof content !== 'string' || !content.trim()) throw new Error('DeepSeek 未返回可读复盘');
-    const record = { id: trade.id, createdAt: Date.now() / 1000, analysis: content, trade, promptVersion: 2, model: 'deepseek-flash', sample, truncated: choice.finish_reason === 'length' };
-    const filename = `analysis-${trade.id}.json`;
-    await this.enqueue(async () => {
-      const archive = path.join(this.dataPath, 'analysis-history');
-      try {
-        await fs.access(path.join(this.dataPath, filename)); await fs.mkdir(archive, { recursive: true });
-        await fs.copyFile(path.join(this.dataPath, filename), path.join(archive, `${Date.now()}-${filename}`));
-      } catch (error) { if (error.code !== 'ENOENT') throw error; }
-      await this.atomic(path.join(this.dataPath, filename), JSON.stringify(record, null, 2));
-    });
-    await this.record({ type: 'analysis', data: record }); this.emit('analysis', record);
+    const trade=message.trade;
+    if(!trade||!ID.test(trade.id))throw new Error('账单编号无效');
+    this.analysisInFlight??=new Set();if(this.analysisInFlight.has(trade.id)||this.analysisInFlight.size>=2)throw new Error('已有复盘正在生成，请完成后重试');
+    this.analysisInFlight.add(trade.id);
+    try {
+      const sample=message.sample||{trade,market:message.market||[]},prompt=await fs.readFile(this.promptPath,'utf8');let content='',finish=null;
+      await this.streamAgent({messages:[{role:'system',content:prompt},{role:'user',content:JSON.stringify(sample)}]},chunk=>{
+        const choice=chunk.choices?.[0],text=choice?.delta?.content;if(typeof text==='string'&&text){content+=text;this.emit('analysisDelta',{id:trade.id,text});}if(choice?.finish_reason)finish=choice.finish_reason;
+      },'review');
+      if(!content.trim()||!finish)throw new Error('DeepSeek 未返回完整复盘');
+      const record={id:trade.id,createdAt:Date.now()/1000,analysis:content,trade,promptVersion:3,model:'deepseek-v4-pro',reasoningEffort:'max',sample,truncated:finish==='length'},filename=`analysis-${trade.id}.json`;
+      await this.enqueue(async()=>{const archive=path.join(this.dataPath,'analysis-history');try{await fs.access(path.join(this.dataPath,filename));await fs.mkdir(archive,{recursive:true});await fs.copyFile(path.join(this.dataPath,filename),path.join(archive,`${Date.now()}-${filename}`));}catch(error){if(error.code!=='ENOENT')throw error;}await this.atomic(path.join(this.dataPath,filename),JSON.stringify(record,null,2));});
+      await this.record({type:'analysis',data:record});this.emit('analysis',record);
+    }finally{this.analysisInFlight.delete(trade.id);}
+  }
+  async streamAgent(body,onData,kind='chat') {
+    const key=await this.key();if(!key)throw new Error('请先保存 DeepSeek API Key');
+    const controller=new AbortController();this.controllers.add(controller);if(kind==='chat')this.chatController=controller;
+    const timeout=setTimeout(()=>controller.abort(),900000);
+    try {
+      const response=await fetch('https://api.deepseek.com/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json'},body:JSON.stringify({...body,model:'deepseek-v4-pro',thinking:{type:'enabled'},reasoning_effort:'max',stream:true}),signal:controller.signal});
+      if(!response.ok)throw new Error(`DeepSeek HTTP ${response.status}，请检查 Key、余额或模型权限`);
+      const parser=new SSEParser(onData);for await(const chunk of response.body)parser.feed(chunk);parser.finish();
+    } finally {clearTimeout(timeout);this.controllers.delete(controller);if(this.chatController===controller)this.chatController=null;}
   }
   async askAgent(message) {
-    if(this.chatBusy) throw new Error('请等待上一个问题完成');
-    if(!ID.test(message.id||'')||typeof message.question!=='string'||!message.question.trim()||message.question.length>2000) throw new Error('请输入 1–2000 字的问题');
-    this.chatBusy=true;
+    if(this.chatBusy)throw new Error('请等待上一个问题完成');
+    if(!ID.test(message.id||'')||typeof message.question!=='string'||!message.question.trim()||message.question.length>2000||!Array.isArray(message.messages)||Buffer.byteLength(JSON.stringify(message.messages))>8*1024*1024||!Array.isArray(message.tools)||message.tools.length>12)throw new Error('Agent 请求格式错误或上下文过大');
+    this.chatBusy=true;this.chatId=message.id;
     try {
-      const key=await this.key();if(!key)throw new Error('请先保存 DeepSeek API Key');
-      const saved=await this.readJSON('agent-chat.json',[]);
-      const history=(Array.isArray(saved)?saved:[]).filter(x=>typeof x?.question==='string'&&typeof x.answer==='string').slice(-200);
       const prompt=await fs.readFile(path.join(path.dirname(this.promptPath),'chat-system-prompt.txt'),'utf8');
-      const context=message.context&&typeof message.context==='object'?message.context:null;
-      if(context&&Buffer.byteLength(JSON.stringify(context))>128*1024)throw new Error('提问上下文过大');
-      const messages=[{role:'system',content:prompt}];
-      for(const item of history.slice(-6))messages.push({role:'user',content:item.question.slice(0,2000)},{role:'assistant',content:item.answer.slice(0,12000)});
-      messages.push({role:'user',content:JSON.stringify({question:message.question.trim(),context})});
-      const json=await this.request('https://api.deepseek.com/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json'},body:JSON.stringify({model:'deepseek-flash',messages,max_tokens:4000,thinking:{type:'disabled'},temperature:.55})},90000);
-      const choice=json.choices?.[0],answer=choice?.message?.content;
-      if(typeof answer!=='string'||!answer.trim())throw new Error('DeepSeek 未返回回答，请重试');
-      const record={id:message.id,createdAt:Date.now(),question:message.question.trim(),answer,context,truncated:choice.finish_reason==='length'};
-      const records=[...history,record].slice(-200);
-      await this.enqueue(async()=>{
-        await this.atomic(path.join(this.dataPath,'agent-chat.json'),JSON.stringify(records,null,2));
-        const text='# 小雪 Agent 对话\n\n'+records.map(x=>`## ${new Date(x.createdAt).toISOString()}\n\n### 问题\n\n${x.question}\n\n### 回答\n\n${x.answer}\n`).join('\n');
-        await this.atomic(path.join(this.tradeLogPath,'agent-chat.md'),text);
-      });
-      this.emit('agentAnswer',record);
+      const messages=[{role:'system',content:prompt},...message.messages.filter(m=>['user','assistant','tool'].includes(m.role))];
+      await this.streamAgent({messages,tools:message.tools},chunk=>this.emit('agentDelta',{id:message.id,round:message.round,chunk}));
+      this.emit('agentStreamEnd',{id:message.id,round:message.round});
     } finally {this.chatBusy=false;}
+  }
+  async saveAgent(message) {
+    const record=message.record;if(!ID.test(record?.id||'')||typeof record.question!=='string'||typeof record.answer!=='string'||Buffer.byteLength(JSON.stringify(record))>2*1024*1024)throw new Error('对话记录无效或过大');
+    await this.enqueue(async()=>{
+      const history=await this.readJSON('agent-chat.json',[]),records=[...(Array.isArray(history)?history:[]).filter(x=>x.id!==record.id),record].slice(-200);
+      await this.atomic(path.join(this.dataPath,'agent-chat.json'),JSON.stringify(records,null,2));
+      const text='# 小雪 Agent 对话\n\n'+records.map(x=>`## ${new Date(Number(x.createdAt)>1e12?Number(x.createdAt):Number(x.createdAt)*1000).toISOString()}\n\n### 问题\n\n${x.question}\n\n### 回答\n\n${x.answer}\n\n### 工具执行\n\n${JSON.stringify(x.tools||[],null,2)}\n`).join('\n');
+      await this.atomic(path.join(this.tradeLogPath,'agent-chat.md'),text);
+    });this.emit('agentAnswer',record);
+  }
+  async agentTraining(message) {
+    if(!ID.test(message.id||'')||!ID.test(message.callId||''))return;
+    const limit=Math.max(1,Math.min(30,Number(message.limit)||8));
+    let file;try{file=await fs.open(path.join(this.dataPath,'training-data.jsonl'),'r');const info=await file.stat(),size=Math.min(info.size,256*1024),bytes=Buffer.alloc(size);await file.read(bytes,0,size,info.size-size);let lines=bytes.toString('utf8').split('\n');if(info.size>size)lines.shift();
+      const samples=lines.filter(Boolean).slice(-limit).flatMap(line=>{try{return[JSON.parse(line)];}catch{return[];}});
+      this.emit('agentTrainingData',{id:message.id,callId:message.callId,samples});
+    }catch{this.emit('agentTrainingData',{id:message.id,callId:message.callId,samples:[],message:'暂无可读取的训练记录'});}finally{await file?.close();}
   }
   async dispatch(message) {
     if (this.closed || !message || typeof message !== 'object' || typeof message.type !== 'string') return;
@@ -370,11 +374,14 @@ class DesktopService {
         case 'fetchAnalysisContext': await this.fetchAnalysisContext(message); break;
         case 'analyze': await this.analyze(message); break;
         case 'askAgent': await this.askAgent(message); break;
+        case 'cancelAgent': if(message.id===this.chatId)this.chatController?.abort(); break;
+        case 'saveAgentConversation': await this.saveAgent(message); break;
+        case 'agentReadTraining': await this.agentTraining(message); break;
         case 'openTradeLog': await this.openTradeLog(); break;
       }
     } catch (error) {
-      const types = { askAgent:'agentError', analyze: 'analysisError', saveKey: 'keyStatus', fetchSymbols: 'symbolsError', fetchTopSymbols: 'topSymbolsError', fetchDiscoveryQuotes: 'topSymbolsError', fetchContractRisk: 'contractRiskError' };
-      this.emit(types[message.type] || 'storageError', { id: message.type==='askAgent'?message.id:message.trade?.id || '', message: error.message, error: error.message, saved: false });
+      const types = { askAgent:'agentError', saveAgentConversation:'agentSaveError', analyze: 'analysisError', saveKey: 'keyStatus', fetchSymbols: 'symbolsError', fetchTopSymbols: 'topSymbolsError', fetchDiscoveryQuotes: 'topSymbolsError', fetchContractRisk: 'contractRiskError' };
+      this.emit(types[message.type] || 'storageError', { id: message.type==='askAgent'?message.id:message.record?.id||message.trade?.id || '', round:message.round, message: error.message, error: error.message, saved: false });
     }
   }
   close() {
